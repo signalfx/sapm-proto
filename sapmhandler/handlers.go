@@ -3,6 +3,7 @@ package sapmhandler
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"errors"
 	"io"
 	"io/ioutil"
@@ -92,7 +93,7 @@ func ParseTraceV2Request(req *http.Request) (*splunksapm.PostSpansRequest, error
 }
 
 // NewTraceHandlerV2 returns an http.HandlerFunc for receiving SAPM requests and passing the SAPM to a receiving function
-func NewTraceHandlerV2(receiver func(sapm *splunksapm.PostSpansRequest, err error) error) func(rw http.ResponseWriter, req *http.Request) {
+func NewTraceHandlerV2(receiver func(ctx context.Context, sapm *splunksapm.PostSpansRequest, err error) error) func(rw http.ResponseWriter, req *http.Request) {
 	return func(rw http.ResponseWriter, req *http.Request) {
 		sapm, err := ParseTraceV2Request(req)
 		// errors processing the request should return http.StatusBadRequest
@@ -101,7 +102,7 @@ func NewTraceHandlerV2(receiver func(sapm *splunksapm.PostSpansRequest, err erro
 		}
 
 		// pass the SAPM and error to the receiver function
-		err = receiver(sapm, err)
+		err = receiver(req.Context(), sapm, err)
 
 		// handle errors from the receiver function
 		if err != nil {

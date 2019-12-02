@@ -3,6 +3,7 @@ package sapmhandler
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"path"
@@ -123,7 +124,7 @@ func TestNewV2TraceHandler(t *testing.T) {
 			var returnedErr error
 			rw := httptest.NewRecorder()
 
-			receiver := func(sapm *splunksapm.PostSpansRequest, err error) error {
+			receiver := func(ctx context.Context, sapm *splunksapm.PostSpansRequest, err error) error {
 				returnedErr = err
 				return err
 			}
