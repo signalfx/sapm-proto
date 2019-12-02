@@ -95,7 +95,7 @@ func NewTraceHandlerV2(receiver func(sapm *splunksapm.PostSpansRequest, err erro
 
 		// return an response
 		rw.Header().Set(contentTypeHeader, xprotobuf)
-		respBytes, _ := proto.Marshal(&splunksapm.PostSpansRequest{})
+		respBytes, _ := proto.Marshal(&splunksapm.PostSpansResponse{})
 		rw.Write(respBytes)
 	}
 }
