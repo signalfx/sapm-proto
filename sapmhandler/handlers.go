@@ -20,6 +20,7 @@ const (
 	contentTypeHeader = "Content-Type"
 	xprotobuf         = "application/x-protobuf"
 
+	acceptEncodingHeader  = "Accept-Encoding"
 	contentEncodingHeader = "Content-Encoding"
 	gzipEncoding          = "gzip"
 )
@@ -28,11 +29,20 @@ var (
 	// ErrBadContentType indicates an incompatible content type was received
 	ErrBadContentType = errors.New("bad content type")
 
+	// ErrBadRequest indicates that the request couldn't be decoded
+	ErrBadRequest = errors.New("bad request")
+
 	gzipReaderPool = &sync.Pool{
 		New: func() interface{} {
 			// create a new gzip reader with a bytes reader and array of bytes containing only the gzip header
 			r, _ := gzip.NewReader(bytes.NewReader([]byte{31, 139, 8, 0, 0, 0, 0, 0, 0, 255, 0, 0, 0, 255, 255, 1, 0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0}))
 			return r
+		},
+	}
+
+	gzipWriterPool = &sync.Pool{
+		New: func() interface{} {
+			return gzip.NewWriter(ioutil.Discard)
 		},
 	}
 )
@@ -82,7 +92,7 @@ func ParseTraceV2Request(req *http.Request) (*splunksapm.PostSpansRequest, error
 }
 
 // NewTraceHandlerV2 returns an http.HandlerFunc for receiving SAPM requests and passing the SAPM to a receiving function
-func NewTraceHandlerV2(receiver func(sapm *splunksapm.PostSpansRequest, err error)) func(rw http.ResponseWriter, req *http.Request) {
+func NewTraceHandlerV2(receiver func(sapm *splunksapm.PostSpansRequest, err error) error) func(rw http.ResponseWriter, req *http.Request) {
 	return func(rw http.ResponseWriter, req *http.Request) {
 		sapm, err := ParseTraceV2Request(req)
 		// errors processing the request should return http.StatusBadRequest
@@ -91,11 +101,66 @@ func NewTraceHandlerV2(receiver func(sapm *splunksapm.PostSpansRequest, err erro
 		}
 
 		// pass the SAPM and error to the receiver function
-		receiver(sapm, err)
+		err = receiver(sapm, err)
 
-		// return an response
+		// handle errors from the receiver function
+		if err != nil {
+			// write a 500 error and return if the error isn't ErrBadRequest
+			if err == ErrBadRequest {
+				rw.WriteHeader(http.StatusBadRequest)
+			} else {
+				// return a 500 when an unknown error occurs in receiver
+				rw.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+		}
+
+		// respBytes are bytes to write to the http.Response
+		var respBytes []byte
+
+		// build the response message
+		respBytes, err = proto.Marshal(&splunksapm.PostSpansResponse{})
+		if err != nil {
+			rw.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		rw.Header().Set(contentTypeHeader, xprotobuf)
-		respBytes, _ := proto.Marshal(&splunksapm.PostSpansResponse{})
-		rw.Write(respBytes)
+
+		// write the response if client does not accept gzip encoding
+		if req.Header.Get(acceptEncodingHeader) != gzipEncoding {
+			// write the response bytes
+			rw.Write(respBytes)
+			return
+		}
+
+		// gzip the response
+
+		// get the gzip writer
+		writer := gzipWriterPool.Get().(*gzip.Writer)
+		defer gzipWriterPool.Put(writer)
+
+		var gzipBuffer bytes.Buffer
+
+		// reset the writer with the gzip buffer
+		writer.Reset(&gzipBuffer)
+
+		// gzip the responseBytes
+		_, err = writer.Write(respBytes)
+		if err != nil {
+			rw.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		// flush gzip writer
+		err = writer.Flush()
+		if err != nil {
+			rw.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		// write the successfully gzipped payload
+		rw.Header().Set(contentEncodingHeader, gzipEncoding)
+		rw.Write(gzipBuffer.Bytes())
+		return
 	}
 }
