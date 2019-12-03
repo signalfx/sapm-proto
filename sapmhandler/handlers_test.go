@@ -3,6 +3,7 @@ package sapmhandler
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"path"
@@ -19,14 +20,15 @@ func TestNewV2TraceHandler(t *testing.T) {
 	uncompressedValidProtobufReq := httptest.NewRequest(http.MethodPost, path.Join("http://localhost", TraceEndpointV2), bytes.NewReader(validProto))
 	uncompressedValidProtobufReq.Header.Set(contentTypeHeader, xprotobuf)
 
-	var gzipedValidProtobufBuf bytes.Buffer
-	zipper = gzip.NewWriter(&gzipedValidProtobufBuf)
+	var gzippedValidProtobufBuf bytes.Buffer
+	zipper = gzip.NewWriter(&gzippedValidProtobufBuf)
 	zipper.Write(validProto)
 	zipper.Flush()
 	zipper.Close()
-	gzipedValidProtobufReq := httptest.NewRequest(http.MethodPost, path.Join("http://localhost", TraceEndpointV2), bytes.NewReader(gzipedValidProtobufBuf.Bytes()))
-	gzipedValidProtobufReq.Header.Set(contentTypeHeader, xprotobuf)
-	gzipedValidProtobufReq.Header.Set(contentEncodingHeader, gzipEncoding)
+	gzippedValidProtobufReq := httptest.NewRequest(http.MethodPost, path.Join("http://localhost", TraceEndpointV2), bytes.NewReader(gzippedValidProtobufBuf.Bytes()))
+	gzippedValidProtobufReq.Header.Set(contentTypeHeader, xprotobuf)
+	gzippedValidProtobufReq.Header.Set(contentEncodingHeader, gzipEncoding)
+	gzippedValidProtobufReq.Header.Set(acceptEncodingHeader, gzipEncoding)
 
 	badContentTypeReq := httptest.NewRequest(http.MethodPost, path.Join("http://localhost", TraceEndpointV2), bytes.NewReader([]byte{}))
 	badContentTypeReq.Header.Set(contentTypeHeader, "application/json")
@@ -86,7 +88,7 @@ func TestNewV2TraceHandler(t *testing.T) {
 		},
 		{
 			name: "valid gzipped protobuf returns a 200 status code",
-			req:  gzipedValidProtobufReq,
+			req:  gzippedValidProtobufReq,
 			want: want{
 				statusCode: http.StatusOK,
 				wantErr:    false,
@@ -122,8 +124,9 @@ func TestNewV2TraceHandler(t *testing.T) {
 			var returnedErr error
 			rw := httptest.NewRecorder()
 
-			receiver := func(sapm *splunksapm.PostSpansRequest, err error) {
+			receiver := func(ctx context.Context, sapm *splunksapm.PostSpansRequest, err error) error {
 				returnedErr = err
+				return err
 			}
 
 			handler := NewTraceHandlerV2(receiver)
@@ -132,10 +135,17 @@ func TestNewV2TraceHandler(t *testing.T) {
 				t.Errorf("NewTraceHandlerV2() returned err = %v, wantErr = %v", returnedErr, tt.want.wantErr)
 				return
 			}
+
 			if statusCode := rw.Code; tt.want.statusCode != statusCode {
 				t.Errorf("NewTraceHandlerV2() returned status code '%v', wanted '%v'", statusCode, tt.want.statusCode)
+				return
 			}
 
+			requestEncoding := tt.req.Header.Get(acceptEncodingHeader)
+			responseEncoding := rw.Header().Get(contentEncodingHeader)
+			if requestEncoding != responseEncoding {
+				t.Errorf("NewTraceHandlerV2() request encoding '%v' does not match response '%v'", requestEncoding, responseEncoding)
+			}
 		})
 	}
 }
