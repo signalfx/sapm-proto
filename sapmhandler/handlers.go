@@ -112,8 +112,8 @@ func NewTraceHandlerV2(receiver func(ctx context.Context, sapm *splunksapm.PostS
 			} else {
 				// return a 500 when an unknown error occurs in receiver
 				rw.WriteHeader(http.StatusInternalServerError)
-				return
 			}
+			return
 		}
 
 		// respBytes are bytes to write to the http.Response
