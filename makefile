@@ -8,7 +8,7 @@ all:
 .PHONY: generate
 generate:
 	mkdir -p gen
-	docker run --rm -v $(PWD):$(PWD) -w $(PWD) znly/protoc --go_out=./gen/ -I./ -I./vendor/github.com/gogo/protobuf/ -I./vendor/ sapm.proto
+	docker run --rm -v $(PWD):$(PWD) -w $(PWD) znly/protoc --gofast_out=./gen/ -I./ -I./vendor/github.com/gogo/protobuf/ -I./vendor/ sapm.proto
 
 .PHONY: test
 test:
