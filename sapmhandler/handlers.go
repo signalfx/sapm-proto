@@ -152,8 +152,8 @@ func NewTraceHandlerV2(receiver func(ctx context.Context, sapm *splunksapm.PostS
 			return
 		}
 
-		// flush gzip writer
-		err = writer.Flush()
+		// close the gzip writer and write gzip footer
+		err = writer.Close()
 		if err != nil {
 			rw.WriteHeader(http.StatusInternalServerError)
 			return

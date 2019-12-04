@@ -23,7 +23,6 @@ func TestNewV2TraceHandler(t *testing.T) {
 	var gzippedValidProtobufBuf bytes.Buffer
 	zipper = gzip.NewWriter(&gzippedValidProtobufBuf)
 	zipper.Write(validProto)
-	zipper.Flush()
 	zipper.Close()
 	gzippedValidProtobufReq := httptest.NewRequest(http.MethodPost, path.Join("http://localhost", TraceEndpointV2), bytes.NewReader(gzippedValidProtobufBuf.Bytes()))
 	gzippedValidProtobufReq.Header.Set(contentTypeHeader, xprotobuf)
@@ -46,7 +45,6 @@ func TestNewV2TraceHandler(t *testing.T) {
 	var emptyGZipBuf bytes.Buffer
 	zipper = gzip.NewWriter(&emptyGZipBuf)
 	zipper.Write([]byte{})
-	zipper.Flush()
 	zipper.Close()
 	emptyGZipReq := httptest.NewRequest(http.MethodPost, path.Join("http://localhost", TraceEndpointV2), bytes.NewReader(emptyGZipBuf.Bytes()))
 	emptyGZipReq.Header.Set(contentTypeHeader, xprotobuf)
@@ -55,7 +53,6 @@ func TestNewV2TraceHandler(t *testing.T) {
 	var invalidProtubfBuf bytes.Buffer
 	zipper = gzip.NewWriter(&invalidProtubfBuf)
 	zipper.Write([]byte("invalid protbuf body"))
-	zipper.Flush()
 	zipper.Close()
 	invalidProtobufReq := httptest.NewRequest(http.MethodPost, path.Join("http://localhost", TraceEndpointV2), bytes.NewReader(invalidProtubfBuf.Bytes()))
 	invalidProtobufReq.Header.Set(contentTypeHeader, xprotobuf)
