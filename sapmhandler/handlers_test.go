@@ -3,7 +3,6 @@ package sapmhandler
 import (
 	"bytes"
 	"compress/gzip"
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"path"
@@ -80,7 +79,7 @@ func TestNewV2TraceHandler(t *testing.T) {
 			req:  badBodyReq,
 			want: want{
 				statusCode: http.StatusBadRequest,
-				wantErr:    true,
+				wantErr:    false,
 			},
 		},
 		{
@@ -96,7 +95,7 @@ func TestNewV2TraceHandler(t *testing.T) {
 			req:  badContentTypeReq,
 			want: want{
 				statusCode: http.StatusBadRequest,
-				wantErr:    true,
+				wantErr:    false,
 			},
 		},
 		{
@@ -104,7 +103,7 @@ func TestNewV2TraceHandler(t *testing.T) {
 			req:  badGzipReq,
 			want: want{
 				statusCode: http.StatusBadRequest,
-				wantErr:    true,
+				wantErr:    false,
 			},
 		},
 		{
@@ -112,7 +111,7 @@ func TestNewV2TraceHandler(t *testing.T) {
 			req:  invalidProtobufReq,
 			want: want{
 				statusCode: http.StatusBadRequest,
-				wantErr:    true,
+				wantErr:    false,
 			},
 		},
 	}
@@ -121,9 +120,8 @@ func TestNewV2TraceHandler(t *testing.T) {
 			var returnedErr error
 			rw := httptest.NewRecorder()
 
-			receiver := func(ctx context.Context, sapm *splunksapm.PostSpansRequest, err error) error {
-				returnedErr = err
-				return err
+			receiver := func(sapm *splunksapm.PostSpansRequest) error {
+				return nil
 			}
 
 			handler := NewTraceHandlerV2(receiver)
