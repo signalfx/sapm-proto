@@ -1,1 +1,24 @@
-.idea
+# GoLand IDEA
+/.idea/
+
+# VS Code
+.vscode
+
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Emacs
+*~
+\#*\#
+
+# Miscellaneous files
+*.sw[op]
+*.DS_Store
+
+# Coverage
+coverage.txt
+coverage.html
