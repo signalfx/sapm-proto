@@ -28,10 +28,10 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	jaegerpb "github.com/jaegertracing/jaeger/model"
-	ocTrancelator "github.com/open-telemetry/opentelemetry-collector/translator/trace"
 	"go.opencensus.io/trace"
 
 	sapmpb "github.com/signalfx/sapm-proto/gen"
+	"github.com/signalfx/sapm-proto/translator"
 )
 
 const (
@@ -99,7 +99,7 @@ func (w *worker) export(ctx context.Context, batch *jaegerpb.Batch) error {
 
 		if err.Permanent {
 			span.SetStatus(trace.Status{
-				Code: ocTrancelator.OCStatusCodeFromHTTP(int32(err.StatusCode)),
+				Code: translator.OCStatusCodeFromHTTP(int32(err.StatusCode)),
 			})
 			recordDrops(ctx, sr)
 			return err
@@ -166,7 +166,7 @@ func (w *worker) send(ctx context.Context, r *sendRequest) *ErrHTTPSend {
 	if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnauthorized {
 		msg := fmt.Sprintf("server responded with: %d", resp.StatusCode)
 		span.SetStatus(trace.Status{
-			Code:    ocTrancelator.OCStatusCodeFromHTTP(int32(resp.StatusCode)),
+			Code:    translator.OCStatusCodeFromHTTP(int32(resp.StatusCode)),
 			Message: msg,
 		})
 		return &ErrHTTPSend{
@@ -197,7 +197,7 @@ func (w *worker) send(ctx context.Context, r *sendRequest) *ErrHTTPSend {
 	// TODO: handle 301, 307, 308
 	// redirects are not handled right now but should be to confirm with the spec.
 
-	span.SetStatus(trace.Status{Code: ocTrancelator.OCStatusCodeFromHTTP(int32(resp.StatusCode))})
+	span.SetStatus(trace.Status{Code: translator.OCStatusCodeFromHTTP(int32(resp.StatusCode))})
 	return &ErrHTTPSend{
 		Err:        fmt.Errorf("error exporting spans. server responded with status %d", resp.StatusCode),
 		StatusCode: resp.StatusCode,
