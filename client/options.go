@@ -36,15 +36,6 @@ func WithWorkers(n uint) Option {
 	}
 }
 
-// WithMaxRetries sets a max retries limit on the client. Requests that cannot be completed after this many retries
-// are dropped.
-func WithMaxRetries(n uint) Option {
-	return func(a *Client) error {
-		a.maxRetries = n
-		return nil
-	}
-}
-
 // WithMaxConnections allows to specify the max number of open HTTP connections the client should keep at any time.
 func WithMaxConnections(n uint) Option {
 	return func(a *Client) error {
