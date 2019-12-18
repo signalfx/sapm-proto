@@ -113,14 +113,15 @@ func New(opts ...Option) (*Client, error) {
 // It returns an error in case a request cannot be processed. It's up to the caller to retry.
 func (sa *Client) Export(ctx context.Context, batch *jaegerpb.Batch) error {
 	w := <-sa.workers
-	err := w.export(ctx, batch)
-	if err != nil {
-		if err.RetryDelaySeconds > 0 {
-			go sa.pauseForDuration(time.Duration(err.RetryDelaySeconds) * time.Second)
-		}
-	}
+	sendErr := w.export(ctx, batch)
 	sa.workers <- w
-	return err
+	if sendErr != nil {
+		if sendErr.RetryDelaySeconds > 0 {
+			go sa.pauseForDuration(time.Duration(sendErr.RetryDelaySeconds) * time.Second)
+		}
+		return sendErr
+	}
+	return nil
 }
 
 // Stop waits for all inflight requests to finish and then drains the worker pool so no more work can be done.
