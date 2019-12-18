@@ -49,7 +49,6 @@ type sendRequest struct {
 type Client struct {
 	numWorkers  uint
 	maxIdleCons uint
-	maxRetries  uint
 	endpoint    string
 	accessToken string
 	httpClient  *http.Client
@@ -67,7 +66,6 @@ func New(opts ...Option) (*Client, error) {
 
 	c := &Client{
 		numWorkers:  defaultNumWorkers,
-		maxRetries:  defaultMaxRetries,
 		maxIdleCons: defaultMaxIdleCons,
 	}
 
@@ -104,7 +102,7 @@ func New(opts ...Option) (*Client, error) {
 	c.closeCh = make(chan struct{})
 	c.workers = make(chan *worker, c.numWorkers)
 	for i := uint(0); i < c.numWorkers; i++ {
-		w := newWorker(c.closeCh, c.httpClient, c.endpoint, c.accessToken, c.maxRetries)
+		w := newWorker(c.httpClient, c.endpoint, c.accessToken)
 		c.workers <- w
 	}
 
@@ -112,10 +110,15 @@ func New(opts ...Option) (*Client, error) {
 }
 
 // Export takes a Jaeger batch and uses one of the available workers to export it synchronously.
-// It internally retries with a back-off in case of the server responding with HTTP 429.
+// It returns an error in case a request cannot be processed. It's up to the caller to retry.
 func (sa *Client) Export(ctx context.Context, batch *jaegerpb.Batch) error {
 	w := <-sa.workers
 	err := w.export(ctx, batch)
+	if err != nil {
+		if err.RetryDelaySeconds > 0 {
+			go sa.pauseForDuration(time.Duration(err.RetryDelaySeconds) * time.Second)
+		}
+	}
 	sa.workers <- w
 	return err
 }
@@ -134,4 +137,38 @@ func (sa *Client) Stop() {
 		}()
 	}
 	wg.Wait()
+}
+
+// pauseForDuration takes workers all workers from the pool and holds on to them until either the duration passes or
+// the client is stopped.
+func (sa *Client) pauseForDuration(d time.Duration) {
+	if d <= 0 {
+		return
+	}
+
+	done := make(chan struct{})
+	workers := make([]*worker, 0, sa.numWorkers)
+	ticker := time.NewTicker(d)
+
+	// steal all workers from pool and hold them until time passes
+	go func() {
+	loop:
+		for {
+			select {
+			case w := <-sa.workers:
+				workers = append(workers, w)
+			case <-ticker.C:
+				break loop
+			case <-sa.closeCh:
+				break loop
+			}
+		}
+		close(done)
+	}()
+
+	<-done
+	// return held workers back to the pool
+	for _, w := range workers {
+		sa.workers <- w
+	}
 }

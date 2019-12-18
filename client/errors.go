@@ -14,14 +14,14 @@
 
 package client
 
-// ErrHTTPSend is returned by the HTTP sender when it fails to complete a request for any reason.
-type ErrHTTPSend struct {
+// ErrSend is returned by the HTTP sender when it fails to complete a request for any reason.
+type ErrSend struct {
 	Err               error
 	StatusCode        int
 	Permanent         bool
 	RetryDelaySeconds int
 }
 
-func (e *ErrHTTPSend) Error() string {
+func (e *ErrSend) Error() string {
 	return e.Err.Error()
 }

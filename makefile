@@ -29,7 +29,7 @@ IMPI=impi
 
 
 .PHONY: all
-all: addlicense fmt impi vet lint goimports misspell staticcheck
+all: check
 	$(MAKE) generate
 	$(MAKE) test
 
@@ -37,6 +37,9 @@ all: addlicense fmt impi vet lint goimports misspell staticcheck
 generate:
 	mkdir -p gen
 	docker run --rm -v $(PWD):$(PWD) -w $(PWD) znly/protoc --gofast_out=./gen/ -I./ -I./vendor/github.com/gogo/protobuf/ -I./vendor/ sapm.proto
+
+.PHONY: check
+check: addlicense fmt impi vet lint goimports misspell staticcheck
 
 .PHONY: test
 test:

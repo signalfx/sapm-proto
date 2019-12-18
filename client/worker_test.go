@@ -49,7 +49,7 @@ var testBatch = &jaegerpb.Batch{
 }
 
 func newTestWorker(c *http.Client) *worker {
-	return newWorker(make(chan struct{}), c, "http://local", "", 0)
+	return newWorker(c, "http://local", "")
 }
 
 func TestPrepare(t *testing.T) {

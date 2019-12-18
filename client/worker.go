@@ -24,7 +24,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/golang/protobuf/proto"
 	jaegerpb "github.com/jaegertracing/jaeger/model"
@@ -49,32 +48,27 @@ const (
 // and data corruption. In case a caller needs to export multiple requests at the same time, it should
 // use one worker per request.
 type worker struct {
-	closeCh     chan struct{}
 	client      *http.Client
 	accessToken string
 	endpoint    string
 	gzipWriter  *gzip.Writer
-	maxRetries  uint
 }
 
-func newWorker(closeCh chan struct{}, client *http.Client, endpoint string, accessToken string, maxRetries uint) *worker {
+func newWorker(client *http.Client, endpoint string, accessToken string) *worker {
 	w := &worker{
-		closeCh:     closeCh,
 		client:      client,
 		accessToken: accessToken,
 		endpoint:    endpoint,
 		gzipWriter:  gzip.NewWriter(nil),
-		maxRetries:  maxRetries,
 	}
 	return w
 }
 
-func (w *worker) export(ctx context.Context, batch *jaegerpb.Batch) error {
+func (w *worker) export(ctx context.Context, batch *jaegerpb.Batch) *ErrSend {
 	_, span := trace.StartSpan(ctx, "export")
 	defer span.End()
 
 	span.AddAttributes(trace.Int64Attribute("spans", int64(len(batch.Spans))))
-
 	if len(batch.Spans) == 0 {
 		return nil
 	}
@@ -85,51 +79,26 @@ func (w *worker) export(ctx context.Context, batch *jaegerpb.Batch) error {
 		span.SetStatus(trace.Status{
 			Code: trace.StatusCodeInvalidArgument,
 		})
-		return err
+		return &ErrSend{Err: err}
 	}
 
-	retries := uint(0)
-	for {
-		err := w.send(ctx, sr)
-		if err == nil {
-			recordSuccess(ctx, sr)
-			break
-		}
-		recordSendFailure(ctx, sr)
-
-		if err.Permanent {
-			span.SetStatus(trace.Status{
-				Code: translator.OCStatusCodeFromHTTP(int32(err.StatusCode)),
-			})
-			recordDrops(ctx, sr)
-			return err
-		}
-
-		if err.RetryDelaySeconds > 0 {
-			if retries >= w.maxRetries {
-				span.SetStatus(trace.Status{
-					Code: trace.StatusCodeDeadlineExceeded,
-				})
-				recordDrops(ctx, sr)
-				err.Permanent = true
-				return err
-			}
-
-			select {
-			case <-time.After(time.Duration(err.RetryDelaySeconds) * time.Second):
-				retries++
-				continue
-			case <-w.closeCh:
-				err.Permanent = true
-				return err
-			}
-		}
-		return err
+	serr := w.send(ctx, sr)
+	if serr == nil {
+		recordSuccess(ctx, sr)
+		return nil
 	}
-	return nil
+	recordSendFailure(ctx, sr)
+	span.SetStatus(trace.Status{
+		Code: translator.OCStatusCodeFromHTTP(int32(serr.StatusCode)),
+	})
+
+	if serr.Permanent {
+		recordDrops(ctx, sr)
+	}
+	return serr
 }
 
-func (w *worker) send(ctx context.Context, r *sendRequest) *ErrHTTPSend {
+func (w *worker) send(ctx context.Context, r *sendRequest) *ErrSend {
 	_, span := trace.StartSpan(ctx, "export")
 	defer span.End()
 
@@ -139,7 +108,7 @@ func (w *worker) send(ctx context.Context, r *sendRequest) *ErrHTTPSend {
 			Code:    trace.StatusCodeInvalidArgument,
 			Message: err.Error(),
 		})
-		return &ErrHTTPSend{Err: err, Permanent: true}
+		return &ErrSend{Err: err, Permanent: true}
 	}
 	req.Header.Add(headerContentType, headerValueXProtobuf)
 	req.Header.Add(headerContentEncoding, headerValueGZIP)
@@ -153,7 +122,7 @@ func (w *worker) send(ctx context.Context, r *sendRequest) *ErrHTTPSend {
 			Code:    trace.StatusCodeInternal,
 			Message: err.Error(),
 		})
-		return &ErrHTTPSend{Err: err}
+		return &ErrSend{Err: err}
 	}
 	io.CopyN(ioutil.Discard, resp.Body, maxHTTPBodyReadBytes)
 	defer resp.Body.Close()
@@ -169,7 +138,7 @@ func (w *worker) send(ctx context.Context, r *sendRequest) *ErrHTTPSend {
 			Code:    translator.OCStatusCodeFromHTTP(int32(resp.StatusCode)),
 			Message: msg,
 		})
-		return &ErrHTTPSend{
+		return &ErrSend{
 			Err:        fmt.Errorf("dropping request: %s", msg),
 			StatusCode: http.StatusBadRequest,
 			Permanent:  true,
@@ -177,7 +146,7 @@ func (w *worker) send(ctx context.Context, r *sendRequest) *ErrHTTPSend {
 	}
 
 	// Check if server is overwhelmed and requested to pause sending for a while.
-	// Pause this worker from sending more data till the specified number of seconds in the Retry-After header
+	// Pause from sending more data till the specified number of seconds in the Retry-After header.
 	// Fallback to defaultRateLimitingBackoffSeconds if the header is not present
 	if resp.StatusCode == http.StatusTooManyRequests {
 		retryAfter := defaultRateLimitingBackoffSeconds
@@ -187,7 +156,7 @@ func (w *worker) send(ctx context.Context, r *sendRequest) *ErrHTTPSend {
 			}
 		}
 		span.SetStatus(trace.Status{Code: trace.StatusCodeResourceExhausted})
-		return &ErrHTTPSend{
+		return &ErrSend{
 			Err:               errors.New("server responded with 429"),
 			StatusCode:        resp.StatusCode,
 			RetryDelaySeconds: retryAfter,
@@ -198,7 +167,7 @@ func (w *worker) send(ctx context.Context, r *sendRequest) *ErrHTTPSend {
 	// redirects are not handled right now but should be to confirm with the spec.
 
 	span.SetStatus(trace.Status{Code: translator.OCStatusCodeFromHTTP(int32(resp.StatusCode))})
-	return &ErrHTTPSend{
+	return &ErrSend{
 		Err:        fmt.Errorf("error exporting spans. server responded with status %d", resp.StatusCode),
 		StatusCode: resp.StatusCode,
 	}

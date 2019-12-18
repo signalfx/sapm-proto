@@ -54,8 +54,6 @@ func TestDefaults(t *testing.T) {
 
 	assert.Equal(t, defaultHTTPTimeout, hc.Timeout)
 	assert.Equal(t, defaultNumWorkers, uint(len(c.workers)))
-	w := <-c.workers
-	assert.Equal(t, defaultMaxRetries, w.maxRetries)
 }
 
 func TestClient(t *testing.T) {
@@ -74,8 +72,8 @@ func TestClient(t *testing.T) {
 	}
 
 	for _, batch := range batches {
-		err = c.Export(context.Background(), batch)
-		require.NoError(t, err)
+		err := c.Export(context.Background(), batch)
+		require.Nil(t, err)
 	}
 	requests := transport.requests()
 	assert.Len(t, requests, len(batches))
@@ -90,7 +88,6 @@ func TestFailure(t *testing.T) {
 	c, err := New(
 		defaultEndpointOption,
 		WithHTTPClient(newMockHTTPClient(transport)),
-		WithMaxRetries(0),
 	)
 	require.NoError(t, err)
 
@@ -124,7 +121,6 @@ func TestRetries(t *testing.T) {
 	c, err := New(
 		defaultEndpointOption,
 		WithHTTPClient(newMockHTTPClient(transport)),
-		WithMaxRetries(0),
 	)
 	require.NoError(t, err)
 
@@ -136,7 +132,7 @@ func TestRetries(t *testing.T) {
 	err = c.Export(context.Background(), batch)
 	require.NotNil(t, err)
 	assert.Equal(t, err.Error(), "error exporting spans. server responded with status 500")
-	serr := err.(*ErrHTTPSend)
+	serr := err.(*ErrSend)
 	assert.False(t, serr.Permanent)
 
 	requests := transport.requests()
@@ -162,8 +158,8 @@ func TestBadRequest(t *testing.T) {
 		transport.reset(code)
 		err = c.Export(context.Background(), batch)
 		require.NotNil(t, err)
-		require.IsType(t, &ErrHTTPSend{}, err)
-		serr := err.(*ErrHTTPSend)
+		require.IsType(t, &ErrSend{}, err)
+		serr := err.(*ErrSend)
 		assert.True(t, serr.Permanent)
 		assert.Equal(t, err.Error(), "dropping request: server responded with: "+strconv.Itoa(code))
 
@@ -203,7 +199,7 @@ func TestWorkers(t *testing.T) {
 	for _, batch := range batches {
 		go func(b *jaegerpb.Batch) {
 			err := c.Export(context.Background(), b)
-			require.NoError(t, err)
+			assert.Nil(t, err)
 			wg.Done()
 		}(batch)
 	}
@@ -236,7 +232,7 @@ func TestWorkers(t *testing.T) {
 	for _, batch := range batches {
 		go func(b *jaegerpb.Batch) {
 			err := c.Export(context.Background(), b)
-			require.NoError(t, err)
+			require.Nil(t, err)
 			wg.Done()
 		}(batch)
 	}
@@ -259,13 +255,12 @@ func TestClientStop(t *testing.T) {
 	transport := &mockTransport{
 		statusCode: 429,
 		headers: map[string]string{
-			"Retry-After": "1",
+			"Retry-After": "100",
 		},
 	}
 	c, err := New(
 		defaultEndpointOption,
 		WithHTTPClient(newMockHTTPClient(transport)),
-		WithMaxRetries(1),
 	)
 	require.NoError(t, err)
 
@@ -274,17 +269,66 @@ func TestClientStop(t *testing.T) {
 		Process: &jaegerpb.Process{ServiceName: "test_service"},
 		Spans:   []*jaegerpb.Span{{}},
 	}
-	then := time.Now()
 	err = c.Export(context.Background(), batch)
+	time.Sleep(10 * time.Millisecond)
 	assert.NotNil(t, err)
-	assert.GreaterOrEqual(t, int(time.Since(then).Seconds()), 1)
 
-	// if client is stopped, it should ignore rate-limiting retry and return immediately
-	then = time.Now()
+	// if client is stopped, it should ignore pausing and return immediately
+	then := time.Now()
 	go func() {
 		err = c.Export(context.Background(), batch)
 		assert.NotNil(t, err)
 	}()
 	c.Stop()
-	assert.Less(t, int(time.Since(then).Milliseconds()), 100)
+	assert.True(t, time.Since(then) < time.Duration(101)*time.Millisecond)
+}
+
+func TestPauses(t *testing.T) {
+	retryDelaySeconds := 2
+	transport := &mockTransport{
+		statusCode: 429,
+		headers: map[string]string{
+			"Retry-After": strconv.Itoa(retryDelaySeconds),
+		},
+	}
+
+	numWorkers := 8
+	c, err := New(
+		defaultEndpointOption,
+		WithHTTPClient(newMockHTTPClient(transport)),
+		WithWorkers(uint(numWorkers)),
+	)
+	require.NoError(t, err)
+
+	batch := &jaegerpb.Batch{
+		Process: &jaegerpb.Process{ServiceName: "test_service"},
+		Spans:   []*jaegerpb.Span{{}},
+	}
+
+	then := time.Now()
+	err = c.Export(context.Background(), batch)
+	assert.NotNil(t, err)
+	assert.True(t, time.Since(then) < time.Millisecond*time.Duration(100))
+
+	// sleep to let pause goroutine kick in
+	wait := time.Millisecond * 50
+	time.Sleep(wait)
+
+	wg := sync.WaitGroup{}
+	wg.Add(numWorkers)
+
+	elapsed := []time.Duration{}
+	for i := 0; i < numWorkers; i++ {
+		go func() {
+			then := time.Now()
+			c.Export(context.Background(), batch)
+			elapsed = append(elapsed, time.Since(then)+wait)
+			wg.Done()
+		}()
+	}
+
+	wg.Wait()
+	for _, e := range elapsed {
+		assert.True(t, e >= time.Second*time.Duration(retryDelaySeconds))
+	}
 }
