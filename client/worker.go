@@ -30,18 +30,6 @@ import (
 	"go.opencensus.io/trace"
 
 	sapmpb "github.com/signalfx/sapm-proto/gen"
-	"github.com/signalfx/sapm-proto/translator"
-)
-
-const (
-	defaultRateLimitingBackoffSeconds = 8
-	headerAccessToken                 = "X-SF-Token"
-	headerRetryAfter                  = "Retry-After"
-	headerContentEncoding             = "Content-Encoding"
-	headerContentType                 = "Content-Type"
-	headerValueGZIP                   = "gzip"
-	headerValueXProtobuf              = "application/x-protobuf"
-	maxHTTPBodyReadBytes              = 256 << 10
 )
 
 // worker is not safe to be called from multiple goroutines. Each caller must use locks to avoid races
@@ -89,7 +77,7 @@ func (w *worker) export(ctx context.Context, batch *jaegerpb.Batch) *ErrSend {
 	}
 	recordSendFailure(ctx, sr)
 	span.SetStatus(trace.Status{
-		Code: translator.OCStatusCodeFromHTTP(int32(serr.StatusCode)),
+		Code: OCStatusCodeFromHTTP(int32(serr.StatusCode)),
 	})
 
 	if serr.Permanent {
@@ -135,7 +123,7 @@ func (w *worker) send(ctx context.Context, r *sendRequest) *ErrSend {
 	if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnauthorized {
 		msg := fmt.Sprintf("server responded with: %d", resp.StatusCode)
 		span.SetStatus(trace.Status{
-			Code:    translator.OCStatusCodeFromHTTP(int32(resp.StatusCode)),
+			Code:    OCStatusCodeFromHTTP(int32(resp.StatusCode)),
 			Message: msg,
 		})
 		return &ErrSend{
@@ -166,7 +154,7 @@ func (w *worker) send(ctx context.Context, r *sendRequest) *ErrSend {
 	// TODO: handle 301, 307, 308
 	// redirects are not handled right now but should be to confirm with the spec.
 
-	span.SetStatus(trace.Status{Code: translator.OCStatusCodeFromHTTP(int32(resp.StatusCode))})
+	span.SetStatus(trace.Status{Code: OCStatusCodeFromHTTP(int32(resp.StatusCode))})
 	return &ErrSend{
 		Err:        fmt.Errorf("error exporting spans. server responded with status %d", resp.StatusCode),
 		StatusCode: resp.StatusCode,
