@@ -20,8 +20,8 @@ import (
 	"time"
 
 	jaegerpb "github.com/jaegertracing/jaeger/model"
-	"github.com/signalfx/golib/v3/pointer"
-	"github.com/signalfx/golib/v3/trace"
+	"github.com/signalfx/golib/pointer"
+	"github.com/signalfx/golib/trace"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 

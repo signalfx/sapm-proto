@@ -20,7 +20,7 @@ import (
 	"time"
 
 	jaegerpb "github.com/jaegertracing/jaeger/model"
-	"github.com/signalfx/golib/v3/trace"
+	"github.com/signalfx/golib/trace"
 
 	gen "github.com/signalfx/sapm-proto/gen"
 )
