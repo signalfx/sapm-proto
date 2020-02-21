@@ -39,7 +39,7 @@ generate:
 	docker run --rm -v $(PWD):$(PWD) -w $(PWD) znly/protoc --gofast_out=./gen/ -I./ -I./vendor/github.com/gogo/protobuf/ -I./vendor/ sapm.proto
 
 .PHONY: check
-check: addlicense fmt impi vet lint goimports misspell staticcheck
+check: addlicense fmt vet lint goimports misspell staticcheck
 
 .PHONY: test
 test:

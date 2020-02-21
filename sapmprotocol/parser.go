@@ -19,7 +19,6 @@ import (
 	"compress/gzip"
 	"errors"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"sync"
 
@@ -28,15 +27,27 @@ import (
 	splunksapm "github.com/signalfx/sapm-proto/gen"
 )
 
+type poolObj struct {
+	gr   *gzip.Reader
+	jeff *bytes.Buffer
+	tmp  []byte
+}
+
 var (
 	// ErrBadContentType indicates an incompatible content type was received
 	ErrBadContentType = errors.New("bad content type")
 
-	gzipReaderPool = &sync.Pool{
+	pool = &sync.Pool{
 		New: func() interface{} {
 			// create a new gzip reader with a bytes reader and array of bytes containing only the gzip header
-			r, _ := gzip.NewReader(bytes.NewReader([]byte{31, 139, 8, 0, 0, 0, 0, 0, 0, 255, 0, 0, 0, 255, 255, 1, 0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0}))
-			return r
+			gr, _ := gzip.NewReader(bytes.NewReader([]byte{31, 139, 8, 0, 0, 0, 0, 0, 0, 255, 0, 0, 0, 255, 255, 1, 0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0}))
+			jeff := &bytes.Buffer{}
+			tmp := make([]byte, 32*1024)
+			return &poolObj{
+				gr:   gr,
+				jeff: jeff,
+				tmp:  tmp,
+			}
 		},
 	}
 )
@@ -51,25 +62,24 @@ func ParseTraceV2Request(req *http.Request) (*splunksapm.PostSpansRequest, error
 	var err error
 	var reader io.Reader
 
+	obj := pool.Get().(*poolObj)
+	defer pool.Put(obj)
+	obj.jeff.Reset()
+
 	// content encoding SHOULD be gzip
 	if req.Header.Get(ContentEncodingHeaderName) == GZipEncodingHeaderValue {
 		// get the gzip reader
-		reader = gzipReaderPool.Get().(*gzip.Reader)
-		defer gzipReaderPool.Put(reader)
-
 		// reset the reader with the request body
-		err = reader.(*gzip.Reader).Reset(req.Body)
+		err = obj.gr.Reset(req.Body)
 		if err != nil {
 			return nil, err
 		}
+		reader = obj.gr
 	} else {
 		reader = req.Body
 	}
 
-	var reqBytes []byte
-
-	// read all of the data
-	reqBytes, err = ioutil.ReadAll(reader)
+	_, err = io.CopyBuffer(obj.jeff, reader, obj.tmp)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +87,7 @@ func ParseTraceV2Request(req *http.Request) (*splunksapm.PostSpansRequest, error
 	var sapm = &splunksapm.PostSpansRequest{}
 
 	// unmarshal request body
-	err = proto.Unmarshal(reqBytes, sapm)
+	err = proto.Unmarshal(obj.jeff.Bytes(), sapm)
 	if err != nil {
 		return nil, err
 	}

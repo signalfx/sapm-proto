@@ -16,8 +16,8 @@ require (
 	github.com/stretchr/testify v1.4.0
 	go.opencensus.io v0.22.2
 	golang.org/x/lint v0.0.0-20190409202823-959b441ac422
-	golang.org/x/tools v0.0.0-20190906203814-12febf440ab1
+	golang.org/x/tools v0.0.0-20200204192400-7124308813f3
 	gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 // indirect
-	gopkg.in/yaml.v2 v2.2.5 // indirect
+	gopkg.in/yaml.v2 v2.2.7 // indirect
 	honnef.co/go/tools v0.0.1-2019.2.3
 )

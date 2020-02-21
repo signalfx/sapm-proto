@@ -17,12 +17,16 @@ package sapmprotocol
 import (
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path"
 	"reflect"
 	"testing"
 	"testing/iotest"
+	"time"
+
+	"github.com/jaegertracing/jaeger/model"
 
 	"github.com/golang/protobuf/proto"
 
@@ -143,5 +147,37 @@ func TestNewV2TraceHandler(t *testing.T) {
 				t.Errorf("ParseTraceV2Request() sapm returned = %v, wanted = %v", sapm, tt.want.sapm)
 			}
 		})
+	}
+}
+
+func BenchmarkDecode(b *testing.B) {
+	batch := &model.Batch{
+		Process: &model.Process{ServiceName: "spring"},
+		Spans:   []*model.Span{},
+	}
+	smallN := 150
+	for i := 0; i < smallN; i++ {
+		batch.Spans = append(batch.Spans, &model.Span{TraceID: model.NewTraceID(0, 1), SpanID: model.NewSpanID(2), OperationName: "jonatan", Duration: time.Microsecond * 1,
+			Tags:      model.KeyValues{{Key: "span.kind", VStr: "client", VType: model.StringType}},
+			StartTime: time.Now().UTC()})
+	}
+
+	bb, err := proto.Marshal(&splunksapm.PostSpansRequest{Batches: []*model.Batch{batch}})
+	if err != nil {
+		b.Fatal(err.Error())
+	}
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		valid := httptest.NewRequest(http.MethodPost, path.Join("http://localhost", TraceEndpointV2), bytes.NewReader(bb))
+		valid.Header.Set(ContentTypeHeaderName, ContentTypeHeaderValue)
+		sapm, err := ParseTraceV2Request(valid)
+		if err != nil {
+			b.Fatal(err.Error())
+		}
+		batch := sapm.Batches[0]
+		if len(batch.Spans) != smallN {
+			b.Fatal(fmt.Sprintf("wrong size %d", len(batch.Spans)))
+		}
 	}
 }
