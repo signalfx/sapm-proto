@@ -23,6 +23,7 @@ import (
 	"sync"
 
 	"github.com/golang/protobuf/proto"
+
 	splunksapm "github.com/signalfx/sapm-proto/gen"
 )
 
