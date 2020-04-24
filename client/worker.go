@@ -52,16 +52,22 @@ func newWorker(client *http.Client, endpoint string, accessToken string) *worker
 	return w
 }
 
-func (w *worker) export(ctx context.Context, batch *jaegerpb.Batch) *ErrSend {
-	_, span := trace.StartSpan(ctx, "export")
+func (w *worker) export(ctx context.Context, batches []*jaegerpb.Batch) *ErrSend {
+	ctx, span := trace.StartSpan(ctx, "export")
 	defer span.End()
 
-	span.AddAttributes(trace.Int64Attribute("spans", int64(len(batch.Spans))))
-	if len(batch.Spans) == 0 {
+	var spansCount int
+	for _, batch := range batches {
+		spansCount += len(batch.Spans)
+	}
+
+	span.AddAttributes(trace.Int64Attribute("spans", int64(spansCount)))
+	span.AddAttributes(trace.Int64Attribute("batches", int64(len(batches))))
+	if spansCount == 0 {
 		return nil
 	}
 
-	sr, err := w.prepare(ctx, batch)
+	sr, err := w.prepare(ctx, batches, spansCount)
 	if err != nil {
 		recordEncodingFailure(ctx, sr)
 		span.SetStatus(trace.Status{
@@ -161,17 +167,15 @@ func (w *worker) send(ctx context.Context, r *sendRequest) *ErrSend {
 	}
 }
 
-// prepare takes a jaeger batch, converts it to a SAPM PostSpansRequest, compresses it and returns a request ready
+// prepare takes a jaeger batches, converts them to a SAPM PostSpansRequest, compresses it and returns a request ready
 // to be sent.
-func (w *worker) prepare(ctx context.Context, batch *jaegerpb.Batch) (*sendRequest, error) {
+func (w *worker) prepare(ctx context.Context, batches []*jaegerpb.Batch, spansCount int) (*sendRequest, error) {
 	_, span := trace.StartSpan(ctx, "export")
 	defer span.End()
 
 	buf := bytes.NewBuffer([]byte{})
 	w.gzipWriter.Reset(buf)
 
-	batches := make([]*jaegerpb.Batch, 1)
-	batches[0] = batch
 	psr := &sapmpb.PostSpansRequest{
 		Batches: batches,
 	}
@@ -203,8 +207,8 @@ func (w *worker) prepare(ctx context.Context, batch *jaegerpb.Batch) (*sendReque
 	}
 	sr := &sendRequest{
 		message: buf.Bytes(),
-		batches: 1,
-		spans:   int64(len(batch.Spans)),
+		batches: int64(len(batches)),
+		spans:   int64(spansCount),
 	}
 	return sr, nil
 }

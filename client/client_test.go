@@ -18,7 +18,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"reflect"
 	"strconv"
 	"sync"
 	"testing"
@@ -33,17 +32,10 @@ import (
 
 var defaultEndpointOption = WithEndpoint("http://local")
 
-func assertRequestEqualBatch(t *testing.T, r *http.Request, b *jaegerpb.Batch) {
+func assertRequestEqualBatches(t *testing.T, r *http.Request, b []*jaegerpb.Batch) {
 	psr, err := sapmprotocol.ParseTraceV2Request(r)
 	assert.NoError(t, err)
-
-	// No super batching happens in current version
-	require.Len(t, psr.Batches, 1)
-
-	got := psr.Batches[0]
-	if !reflect.DeepEqual(got, b) {
-		t.Errorf("got:\n%+v\nwant:\n%+v\n", got, b)
-	}
+	assert.EqualValues(t, b, psr.Batches)
 }
 
 func TestDefaults(t *testing.T) {
@@ -61,25 +53,28 @@ func TestClient(t *testing.T) {
 	c, err := New(defaultEndpointOption, WithHTTPClient(newMockHTTPClient(transport)))
 	require.NoError(t, err)
 
-	batches := []*jaegerpb.Batch{}
+	requestsBatches := [][]*jaegerpb.Batch{}
 
 	for i := 0; i < 10; i++ {
-		batch := &jaegerpb.Batch{
-			Process: &jaegerpb.Process{ServiceName: "test_service_" + strconv.Itoa(i)},
-			Spans:   []*jaegerpb.Span{{}},
+		batches := []*jaegerpb.Batch{
+			{
+				Process: &jaegerpb.Process{ServiceName: "test_service_" + strconv.Itoa(i)},
+				Spans:   []*jaegerpb.Span{{}},
+			},
 		}
-		batches = append(batches, batch)
+		requestsBatches = append(requestsBatches, batches)
 	}
 
-	for _, batch := range batches {
-		err := c.Export(context.Background(), batch)
+	for _, batches := range requestsBatches {
+		err := c.Export(context.Background(), batches)
 		require.Nil(t, err)
 	}
-	requests := transport.requests()
-	assert.Len(t, requests, len(batches))
 
-	for i, want := range batches {
-		assertRequestEqualBatch(t, requests[i].r, want)
+	requests := transport.requests()
+	assert.Len(t, requests, len(requestsBatches))
+
+	for i, want := range requestsBatches {
+		assertRequestEqualBatches(t, requests[i].r, want)
 	}
 }
 
@@ -91,29 +86,31 @@ func TestFailure(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	batch := &jaegerpb.Batch{
-		Process: &jaegerpb.Process{ServiceName: "test_service"},
-		Spans:   []*jaegerpb.Span{{}},
+	batches := []*jaegerpb.Batch{
+		{
+			Process: &jaegerpb.Process{ServiceName: "test_service"},
+			Spans:   []*jaegerpb.Span{{}},
+		},
 	}
 
-	err = c.Export(context.Background(), batch)
+	err = c.Export(context.Background(), batches)
 	require.NotNil(t, err)
-	assert.Equal(t, err.Error(), "error exporting spans. server responded with status 500")
+	assert.Equal(t, "error exporting spans. server responded with status 500", err.Error())
 
 	requests := transport.requests()
 	require.Len(t, requests, 1)
-	assertRequestEqualBatch(t, requests[0].r, batch)
+	assertRequestEqualBatches(t, requests[0].r, batches)
 
 	transport.reset(200)
 	transport.err = errors.New("transport error")
 
-	err = c.Export(context.Background(), batch)
+	err = c.Export(context.Background(), batches)
 	require.NotNil(t, err)
-	assert.Equal(t, err.Error(), "Post http://local: transport error")
+	assert.Equal(t, "Post \"http://local\": transport error", err.Error())
 
 	requests = transport.requests()
 	require.Len(t, requests, 1)
-	assertRequestEqualBatch(t, requests[0].r, batch)
+	assertRequestEqualBatches(t, requests[0].r, batches)
 }
 
 func TestRetries(t *testing.T) {
@@ -124,12 +121,14 @@ func TestRetries(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	batch := &jaegerpb.Batch{
-		Process: &jaegerpb.Process{ServiceName: "test_service"},
-		Spans:   []*jaegerpb.Span{{}},
+	batches := []*jaegerpb.Batch{
+		{
+			Process: &jaegerpb.Process{ServiceName: "test_service"},
+			Spans:   []*jaegerpb.Span{{}},
+		},
 	}
 
-	err = c.Export(context.Background(), batch)
+	err = c.Export(context.Background(), batches)
 	require.NotNil(t, err)
 	assert.Equal(t, err.Error(), "error exporting spans. server responded with status 500")
 	serr := err.(*ErrSend)
@@ -137,7 +136,7 @@ func TestRetries(t *testing.T) {
 
 	requests := transport.requests()
 	require.Len(t, requests, 1)
-	assertRequestEqualBatch(t, requests[0].r, batch)
+	assertRequestEqualBatches(t, requests[0].r, batches)
 }
 
 func TestBadRequest(t *testing.T) {
@@ -149,14 +148,16 @@ func TestBadRequest(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	batch := &jaegerpb.Batch{
-		Process: &jaegerpb.Process{ServiceName: "test_service"},
-		Spans:   []*jaegerpb.Span{{}},
+	batches := []*jaegerpb.Batch{
+		{
+			Process: &jaegerpb.Process{ServiceName: "test_service"},
+			Spans:   []*jaegerpb.Span{{}},
+		},
 	}
 
 	for _, code := range []int{400, 401} {
 		transport.reset(code)
-		err = c.Export(context.Background(), batch)
+		err = c.Export(context.Background(), batches)
 		require.NotNil(t, err)
 		require.IsType(t, &ErrSend{}, err)
 		serr := err.(*ErrSend)
@@ -165,8 +166,7 @@ func TestBadRequest(t *testing.T) {
 
 		requests := transport.requests()
 		require.Len(t, requests, 1)
-		assertRequestEqualBatch(t, requests[0].r, batch)
-
+		assertRequestEqualBatches(t, requests[0].r, batches)
 	}
 }
 
@@ -187,21 +187,23 @@ func TestWorkers(t *testing.T) {
 	wg := sync.WaitGroup{}
 	wg.Add(numRequests)
 
-	batches := make([]*jaegerpb.Batch, numRequests)
+	requestsBatches := make([][]*jaegerpb.Batch, numRequests)
 	for i := 0; i < numRequests; i++ {
-		batches[i] = &jaegerpb.Batch{
-			Process: &jaegerpb.Process{ServiceName: "test_service"},
-			Spans:   []*jaegerpb.Span{{}},
+		requestsBatches[i] = []*jaegerpb.Batch{
+			{
+				Process: &jaegerpb.Process{ServiceName: "test_service"},
+				Spans:   []*jaegerpb.Span{{}},
+			},
 		}
 	}
 
 	then := time.Now()
-	for _, batch := range batches {
-		go func(b *jaegerpb.Batch) {
+	for _, batches := range requestsBatches {
+		go func(b []*jaegerpb.Batch) {
 			err := c.Export(context.Background(), b)
 			assert.Nil(t, err)
 			wg.Done()
-		}(batch)
+		}(batches)
 	}
 	wg.Wait()
 
@@ -209,11 +211,11 @@ func TestWorkers(t *testing.T) {
 	require.Len(t, requests, 4)
 
 	// ensure each batch took at least (workerDelay * batch's queue position) to complete
-	for i, b := range batches {
+	for i, b := range requestsBatches {
 		r := requests[i]
 		delay := r.receivedAt.Sub(then)
 		assert.GreaterOrEqual(t, int(delay), int(workerDelay*time.Duration(i)))
-		assertRequestEqualBatch(t, r.r, b)
+		assertRequestEqualBatches(t, r.r, b)
 	}
 
 	// reset transport to remove delay and empty recorded requests
@@ -229,12 +231,12 @@ func TestWorkers(t *testing.T) {
 	wg.Add(numRequests)
 
 	then = time.Now()
-	for _, batch := range batches {
-		go func(b *jaegerpb.Batch) {
+	for _, batches := range requestsBatches {
+		go func(b []*jaegerpb.Batch) {
 			err := c.Export(context.Background(), b)
 			require.Nil(t, err)
 			wg.Done()
-		}(batch)
+		}(batches)
 	}
 	wg.Wait()
 
@@ -242,12 +244,12 @@ func TestWorkers(t *testing.T) {
 	require.Len(t, requests, 4)
 
 	// ensure all four requests completed within 100ms
-	hundredMs := time.Millisecond * time.Duration(100)
-	for i, b := range batches {
+	timeout := time.Millisecond * time.Duration(100)
+	for i, b := range requestsBatches {
 		r := requests[i]
 		delay := r.receivedAt.Sub(then)
-		assert.LessOrEqual(t, int(delay), int(hundredMs))
-		assertRequestEqualBatch(t, r.r, b)
+		assert.LessOrEqual(t, int(delay), int(timeout))
+		assertRequestEqualBatches(t, r.r, b)
 	}
 }
 
@@ -265,18 +267,20 @@ func TestClientStop(t *testing.T) {
 	require.NoError(t, err)
 
 	// should take more than 1 second
-	batch := &jaegerpb.Batch{
-		Process: &jaegerpb.Process{ServiceName: "test_service"},
-		Spans:   []*jaegerpb.Span{{}},
+	batches := []*jaegerpb.Batch{
+		{
+			Process: &jaegerpb.Process{ServiceName: "test_service"},
+			Spans:   []*jaegerpb.Span{{}},
+		},
 	}
-	err = c.Export(context.Background(), batch)
+	err = c.Export(context.Background(), batches)
 	time.Sleep(10 * time.Millisecond)
 	assert.NotNil(t, err)
 
 	// if client is stopped, it should ignore pausing and return immediately
 	then := time.Now()
 	go func() {
-		err = c.Export(context.Background(), batch)
+		err = c.Export(context.Background(), batches)
 		assert.NotNil(t, err)
 	}()
 	c.Stop()
@@ -300,13 +304,15 @@ func TestPauses(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	batch := &jaegerpb.Batch{
-		Process: &jaegerpb.Process{ServiceName: "test_service"},
-		Spans:   []*jaegerpb.Span{{}},
+	batches := []*jaegerpb.Batch{
+		{
+			Process: &jaegerpb.Process{ServiceName: "test_service"},
+			Spans:   []*jaegerpb.Span{{}},
+		},
 	}
 
 	then := time.Now()
-	err = c.Export(context.Background(), batch)
+	err = c.Export(context.Background(), batches)
 	assert.NotNil(t, err)
 	assert.True(t, time.Since(then) < time.Millisecond*time.Duration(100))
 
@@ -321,7 +327,7 @@ func TestPauses(t *testing.T) {
 	for i := 0; i < numWorkers; i++ {
 		go func() {
 			then := time.Now()
-			c.Export(context.Background(), batch)
+			c.Export(context.Background(), batches)
 			elapsed = append(elapsed, time.Since(then)+wait)
 			wg.Done()
 		}()

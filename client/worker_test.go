@@ -21,7 +21,6 @@ import (
 	"errors"
 	"io/ioutil"
 	"net/http"
-	"reflect"
 	"testing"
 
 	"github.com/gogo/protobuf/proto"
@@ -32,21 +31,42 @@ import (
 	gen "github.com/signalfx/sapm-proto/gen"
 )
 
-var testBatch = &jaegerpb.Batch{
-	Process: &jaegerpb.Process{
-		ServiceName: "serviceA",
-		Tags:        []jaegerpb.KeyValue{{Key: "k", VStr: "v", VType: jaegerpb.ValueType_STRING}},
-	},
-	Spans: []*jaegerpb.Span{{
-		TraceID:       jaegerpb.NewTraceID(1, 1),
-		SpanID:        jaegerpb.NewSpanID(1),
-		OperationName: "op1",
-	}, {
-		TraceID:       jaegerpb.NewTraceID(2, 2),
-		SpanID:        jaegerpb.NewSpanID(2),
-		OperationName: "op2",
-	}},
-}
+var (
+	testBatches = []*jaegerpb.Batch{
+		{
+			Process: &jaegerpb.Process{
+				ServiceName: "serviceA",
+				Tags:        []jaegerpb.KeyValue{{Key: "k", VStr: "v", VType: jaegerpb.ValueType_STRING}},
+			},
+			Spans: []*jaegerpb.Span{{
+				TraceID:       jaegerpb.NewTraceID(1, 1),
+				SpanID:        jaegerpb.NewSpanID(1),
+				OperationName: "op1",
+			}, {
+				TraceID:       jaegerpb.NewTraceID(2, 2),
+				SpanID:        jaegerpb.NewSpanID(2),
+				OperationName: "op2",
+			}},
+		},
+		{
+			Process: &jaegerpb.Process{
+				ServiceName: "serviceB",
+				Tags:        []jaegerpb.KeyValue{{Key: "k", VInt64: 123, VType: jaegerpb.ValueType_INT64}},
+			},
+			Spans: []*jaegerpb.Span{{
+				TraceID:       jaegerpb.NewTraceID(3, 3),
+				SpanID:        jaegerpb.NewSpanID(3),
+				OperationName: "op3",
+			}, {
+				TraceID:       jaegerpb.NewTraceID(3, 3),
+				SpanID:        jaegerpb.NewSpanID(4),
+				OperationName: "op4",
+			}},
+		},
+	}
+	testBatchesCount = 2
+	testSpansCount   = 4
+)
 
 func newTestWorker(c *http.Client) *worker {
 	return newWorker(c, "http://local", "")
@@ -54,11 +74,11 @@ func newTestWorker(c *http.Client) *worker {
 
 func TestPrepare(t *testing.T) {
 	w := newTestWorker(newMockHTTPClient(&mockTransport{}))
-	sr, err := w.prepare(context.Background(), testBatch)
+	sr, err := w.prepare(context.Background(), testBatches, testSpansCount)
 	assert.NoError(t, err)
 
-	assert.Equal(t, 1, int(sr.batches))
-	assert.Equal(t, 2, len(testBatch.Spans))
+	assert.Equal(t, testBatchesCount, int(sr.batches))
+	assert.Equal(t, int64(testSpansCount), sr.spans)
 
 	gz, err := gzip.NewReader(bytes.NewReader(sr.message))
 	require.NoError(t, err)
@@ -71,14 +91,9 @@ func TestPrepare(t *testing.T) {
 	err = proto.Unmarshal(contents, psr)
 	require.NoError(t, err)
 
-	require.Len(t, psr.Batches, 1)
+	require.Len(t, psr.Batches, testBatchesCount)
 
-	want := psr.Batches[0]
-
-	if !reflect.DeepEqual(testBatch, want) {
-		t.Errorf("got:\n%+v\nwant:\n%+v\n", testBatch, want)
-	}
-
+	require.EqualValues(t, testBatches, psr.Batches)
 }
 
 func TestWorkerSend(t *testing.T) {
@@ -86,7 +101,7 @@ func TestWorkerSend(t *testing.T) {
 	w := newTestWorker(newMockHTTPClient(transport))
 
 	ctx := context.Background()
-	sr, err := w.prepare(ctx, testBatch)
+	sr, err := w.prepare(ctx, testBatches, testBatchesCount)
 	require.NoError(t, err)
 
 	err = w.send(ctx, sr)
@@ -106,28 +121,28 @@ func TestWorkerSendErrors(t *testing.T) {
 	w := newTestWorker(newMockHTTPClient(transport))
 
 	ctx := context.Background()
-	sr, err := w.prepare(ctx, testBatch)
+	sr, err := w.prepare(ctx, testBatches, testBatchesCount)
 	require.NoError(t, err)
 
 	sendErr := w.send(ctx, sr)
 	require.NotNil(t, sendErr)
 	assert.Equal(t, 400, sendErr.StatusCode)
 	assert.True(t, sendErr.Permanent)
-	assert.Equal(t, sendErr.RetryDelaySeconds, 0)
+	assert.Equal(t, 0, sendErr.RetryDelaySeconds)
 
 	transport.reset(500)
 	sendErr = w.send(ctx, sr)
 	require.NotNil(t, sendErr)
 	assert.Equal(t, 500, sendErr.StatusCode)
 	assert.False(t, sendErr.Permanent)
-	assert.Equal(t, sendErr.RetryDelaySeconds, 0)
+	assert.Equal(t, 0, sendErr.RetryDelaySeconds)
 
 	transport.reset(429)
 	sendErr = w.send(ctx, sr)
 	require.NotNil(t, sendErr)
 	assert.Equal(t, 429, sendErr.StatusCode)
 	assert.False(t, sendErr.Permanent)
-	assert.Equal(t, sendErr.RetryDelaySeconds, defaultRateLimitingBackoffSeconds)
+	assert.Equal(t, defaultRateLimitingBackoffSeconds, sendErr.RetryDelaySeconds)
 
 	transport.reset(429)
 	transport.headers = map[string]string{headerRetryAfter: "100"}
@@ -135,14 +150,14 @@ func TestWorkerSendErrors(t *testing.T) {
 	require.NotNil(t, sendErr)
 	assert.Equal(t, 429, sendErr.StatusCode)
 	assert.False(t, sendErr.Permanent)
-	assert.Equal(t, sendErr.RetryDelaySeconds, 100)
+	assert.Equal(t, 100, sendErr.RetryDelaySeconds)
 
 	transport.reset(200)
 	transport.err = errors.New("test error")
 	sendErr = w.send(ctx, sr)
 	require.NotNil(t, sendErr)
-	assert.Equal(t, sendErr.Error(), "Post http://local: test error")
+	assert.Equal(t, "Post \"http://local\": test error", sendErr.Error())
 	assert.Equal(t, 0, sendErr.StatusCode)
 	assert.False(t, sendErr.Permanent)
-	assert.Equal(t, sendErr.RetryDelaySeconds, 0)
+	assert.Equal(t, 0, sendErr.RetryDelaySeconds)
 }
