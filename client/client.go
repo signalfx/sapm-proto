@@ -109,11 +109,11 @@ func New(opts ...Option) (*Client, error) {
 	return c, nil
 }
 
-// Export takes a Jaeger batch and uses one of the available workers to export it synchronously.
+// Export takes a Jaeger batches and uses one of the available workers to export it synchronously.
 // It returns an error in case a request cannot be processed. It's up to the caller to retry.
-func (sa *Client) Export(ctx context.Context, batch *jaegerpb.Batch) error {
+func (sa *Client) Export(ctx context.Context, batches []*jaegerpb.Batch) error {
 	w := <-sa.workers
-	sendErr := w.export(ctx, batch)
+	sendErr := w.export(ctx, batches)
 	sa.workers <- w
 	if sendErr != nil {
 		if sendErr.RetryDelaySeconds > 0 {
