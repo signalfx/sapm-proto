@@ -69,7 +69,7 @@ var (
 )
 
 func newTestWorker(c *http.Client) *worker {
-	return newWorker(c, "http://local", "")
+	return newWorker(c, "http://local", "", false)
 }
 
 func TestPrepare(t *testing.T) {
@@ -80,6 +80,10 @@ func TestPrepare(t *testing.T) {
 	assert.Equal(t, testBatchesCount, int(sr.batches))
 	assert.Equal(t, int64(testSpansCount), sr.spans)
 
+	// cannot unmarshal compressed message
+	err = proto.Unmarshal(sr.message, &gen.PostSpansRequest{})
+	require.Error(t, err)
+
 	gz, err := gzip.NewReader(bytes.NewReader(sr.message))
 	require.NoError(t, err)
 	defer gz.Close()
@@ -89,6 +93,23 @@ func TestPrepare(t *testing.T) {
 
 	psr := &gen.PostSpansRequest{}
 	err = proto.Unmarshal(contents, psr)
+	require.NoError(t, err)
+
+	require.Len(t, psr.Batches, testBatchesCount)
+
+	require.EqualValues(t, testBatches, psr.Batches)
+}
+
+func TestPrepareNoCompression(t *testing.T) {
+	w := newWorker(newMockHTTPClient(&mockTransport{}), "http://local", "", true)
+	sr, err := w.prepare(context.Background(), testBatches, testSpansCount)
+	assert.NoError(t, err)
+
+	assert.Equal(t, testBatchesCount, int(sr.batches))
+	assert.Equal(t, int64(testSpansCount), sr.spans)
+
+	psr := &gen.PostSpansRequest{}
+	err = proto.Unmarshal(sr.message, psr)
 	require.NoError(t, err)
 
 	require.Len(t, psr.Batches, testBatchesCount)
@@ -113,6 +134,26 @@ func TestWorkerSend(t *testing.T) {
 	r := received[0].r
 	assert.Equal(t, r.Method, "POST")
 	assert.Equal(t, r.Header.Get(headerContentEncoding), headerValueGZIP)
+	assert.Equal(t, r.Header.Get(headerContentType), headerValueXProtobuf)
+}
+
+func TestWorkerSendNoCompression(t *testing.T) {
+	transport := &mockTransport{}
+	w := newWorker(newMockHTTPClient(transport), "http://local", "", true)
+
+	ctx := context.Background()
+	sr, err := w.prepare(ctx, testBatches, testBatchesCount)
+	require.NoError(t, err)
+
+	err = w.send(ctx, sr)
+	require.Nil(t, err)
+
+	received := transport.requests()
+	require.Len(t, received, 1)
+
+	r := received[0].r
+	assert.Equal(t, r.Method, "POST")
+	assert.Equal(t, r.Header.Get(headerContentEncoding), "")
 	assert.Equal(t, r.Header.Get(headerContentType), headerValueXProtobuf)
 }
 

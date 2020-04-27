@@ -36,18 +36,20 @@ import (
 // and data corruption. In case a caller needs to export multiple requests at the same time, it should
 // use one worker per request.
 type worker struct {
-	client      *http.Client
-	accessToken string
-	endpoint    string
-	gzipWriter  *gzip.Writer
+	client             *http.Client
+	accessToken        string
+	endpoint           string
+	gzipWriter         *gzip.Writer
+	disableCompression bool
 }
 
-func newWorker(client *http.Client, endpoint string, accessToken string) *worker {
+func newWorker(client *http.Client, endpoint string, accessToken string, disableCompression bool) *worker {
 	w := &worker{
-		client:      client,
-		accessToken: accessToken,
-		endpoint:    endpoint,
-		gzipWriter:  gzip.NewWriter(nil),
+		client:             client,
+		accessToken:        accessToken,
+		endpoint:           endpoint,
+		disableCompression: disableCompression,
+		gzipWriter:         gzip.NewWriter(nil),
 	}
 	return w
 }
@@ -105,7 +107,11 @@ func (w *worker) send(ctx context.Context, r *sendRequest) *ErrSend {
 		return &ErrSend{Err: err, Permanent: true}
 	}
 	req.Header.Add(headerContentType, headerValueXProtobuf)
-	req.Header.Add(headerContentEncoding, headerValueGZIP)
+
+	if !w.disableCompression {
+		req.Header.Add(headerContentEncoding, headerValueGZIP)
+	}
+
 	if w.accessToken != "" {
 		req.Header.Add(headerAccessToken, w.accessToken)
 	}
@@ -173,9 +179,6 @@ func (w *worker) prepare(ctx context.Context, batches []*jaegerpb.Batch, spansCo
 	_, span := trace.StartSpan(ctx, "export")
 	defer span.End()
 
-	buf := bytes.NewBuffer([]byte{})
-	w.gzipWriter.Reset(buf)
-
 	psr := &sapmpb.PostSpansRequest{
 		Batches: batches,
 	}
@@ -188,6 +191,17 @@ func (w *worker) prepare(ctx context.Context, batches []*jaegerpb.Batch, spansCo
 		})
 		return nil, err
 	}
+
+	if w.disableCompression {
+		return &sendRequest{
+			message: encoded,
+			batches: int64(len(batches)),
+			spans:   int64(spansCount),
+		}, nil
+	}
+
+	buf := bytes.NewBuffer([]byte{})
+	w.gzipWriter.Reset(buf)
 
 	_, err = w.gzipWriter.Write(encoded)
 	if err != nil {

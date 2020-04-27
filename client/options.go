@@ -59,3 +59,11 @@ func WithAccessToken(t string) Option {
 		return nil
 	}
 }
+
+// WithDisabledCompression configures the client to not apply GZip compression on the outgoing requests.
+func WithDisabledCompression() Option {
+	return func(a *Client) error {
+		a.disableCompression = true
+		return nil
+	}
+}
