@@ -47,12 +47,13 @@ type sendRequest struct {
 
 // Client implements an HTTP sender for the SAPM protocol
 type Client struct {
-	numWorkers  uint
-	maxIdleCons uint
-	endpoint    string
-	accessToken string
-	httpClient  *http.Client
-	closeCh     chan struct{}
+	numWorkers         uint
+	maxIdleCons        uint
+	endpoint           string
+	accessToken        string
+	httpClient         *http.Client
+	disableCompression bool
+	closeCh            chan struct{}
 
 	workers chan *worker
 }
@@ -102,7 +103,7 @@ func New(opts ...Option) (*Client, error) {
 	c.closeCh = make(chan struct{})
 	c.workers = make(chan *worker, c.numWorkers)
 	for i := uint(0); i < c.numWorkers; i++ {
-		w := newWorker(c.httpClient, c.endpoint, c.accessToken)
+		w := newWorker(c.httpClient, c.endpoint, c.accessToken, c.disableCompression)
 		c.workers <- w
 	}
 
