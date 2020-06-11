@@ -54,12 +54,20 @@ var (
 
 // ParseTraceV2Request processes an http request request into SAPM
 func ParseTraceV2Request(req *http.Request) (*splunksapm.PostSpansRequest, error) {
+	var sapm = &splunksapm.PostSpansRequest{}
+	if err := ParseSapmRequest(req, sapm); err != nil {
+		return nil, err
+	}
+	return sapm, nil
+}
+
+// ParseSapmRequest parses an http request request into an SAPM compatible proto definition.
+func ParseSapmRequest(req *http.Request, into proto.Unmarshaler) error {
 	// content type MUST be application/x-protobuf
 	if req.Header.Get(ContentTypeHeaderName) != ContentTypeHeaderValue {
-		return nil, ErrBadContentType
+		return ErrBadContentType
 	}
 
-	var err error
 	var reader io.Reader
 
 	obj := pool.Get().(*poolObj)
@@ -70,27 +78,18 @@ func ParseTraceV2Request(req *http.Request) (*splunksapm.PostSpansRequest, error
 	if req.Header.Get(ContentEncodingHeaderName) == GZipEncodingHeaderValue {
 		// get the gzip reader
 		// reset the reader with the request body
-		err = obj.gr.Reset(req.Body)
-		if err != nil {
-			return nil, err
+		if err := obj.gr.Reset(req.Body); err != nil {
+			return err
 		}
 		reader = obj.gr
 	} else {
 		reader = req.Body
 	}
 
-	_, err = io.CopyBuffer(obj.jeff, reader, obj.tmp)
-	if err != nil {
-		return nil, err
+	if _, err := io.CopyBuffer(obj.jeff, reader, obj.tmp); err != nil {
+		return err
 	}
-
-	var sapm = &splunksapm.PostSpansRequest{}
 
 	// unmarshal request body
-	err = proto.Unmarshal(obj.jeff.Bytes(), sapm)
-	if err != nil {
-		return nil, err
-	}
-
-	return sapm, err
+	return into.Unmarshal(obj.jeff.Bytes())
 }
