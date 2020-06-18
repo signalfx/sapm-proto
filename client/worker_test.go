@@ -125,7 +125,7 @@ func TestWorkerSend(t *testing.T) {
 	sr, err := w.prepare(ctx, testBatches, testBatchesCount)
 	require.NoError(t, err)
 
-	err = w.send(ctx, sr)
+	err = w.send(ctx, sr, "")
 	require.Nil(t, err)
 
 	received := transport.requests()
@@ -137,6 +137,49 @@ func TestWorkerSend(t *testing.T) {
 	assert.Equal(t, r.Header.Get(headerContentType), headerValueXProtobuf)
 }
 
+func TestWorkerSendWithAccessToken(t *testing.T) {
+	transport := &mockTransport{}
+	w := newTestWorker(newMockHTTPClient(transport))
+
+	ctx := context.Background()
+	sr, err := w.prepare(ctx, testBatches, testBatchesCount)
+	require.NoError(t, err)
+
+	err = w.send(ctx, sr, "Preferential")
+	require.Nil(t, err)
+
+	received := transport.requests()
+	require.Len(t, received, 1)
+
+	r := received[0].r
+	assert.Equal(t, r.Method, "POST")
+	assert.Equal(t, r.Header.Get(headerContentEncoding), headerValueGZIP)
+	assert.Equal(t, r.Header.Get(headerContentType), headerValueXProtobuf)
+	assert.Equal(t, r.Header.Get(headerAccessToken), "Preferential")
+}
+
+func TestWorkerSendDefaultsToWorkerToken(t *testing.T) {
+	transport := &mockTransport{}
+	w := newTestWorker(newMockHTTPClient(transport))
+	w.accessToken = "WorkerToken"
+
+	ctx := context.Background()
+	sr, err := w.prepare(ctx, testBatches, testBatchesCount)
+	require.NoError(t, err)
+
+	err = w.send(ctx, sr, "")
+	require.Nil(t, err)
+
+	received := transport.requests()
+	require.Len(t, received, 1)
+
+	r := received[0].r
+	assert.Equal(t, r.Method, "POST")
+	assert.Equal(t, r.Header.Get(headerContentEncoding), headerValueGZIP)
+	assert.Equal(t, r.Header.Get(headerContentType), headerValueXProtobuf)
+	assert.Equal(t, r.Header.Get(headerAccessToken), "WorkerToken")
+}
+
 func TestWorkerSendNoCompression(t *testing.T) {
 	transport := &mockTransport{}
 	w := newWorker(newMockHTTPClient(transport), "http://local", "", true)
@@ -145,7 +188,7 @@ func TestWorkerSendNoCompression(t *testing.T) {
 	sr, err := w.prepare(ctx, testBatches, testBatchesCount)
 	require.NoError(t, err)
 
-	err = w.send(ctx, sr)
+	err = w.send(ctx, sr, "")
 	require.Nil(t, err)
 
 	received := transport.requests()
@@ -165,21 +208,21 @@ func TestWorkerSendErrors(t *testing.T) {
 	sr, err := w.prepare(ctx, testBatches, testBatchesCount)
 	require.NoError(t, err)
 
-	sendErr := w.send(ctx, sr)
+	sendErr := w.send(ctx, sr, "")
 	require.NotNil(t, sendErr)
 	assert.Equal(t, 400, sendErr.StatusCode)
 	assert.True(t, sendErr.Permanent)
 	assert.Equal(t, 0, sendErr.RetryDelaySeconds)
 
 	transport.reset(500)
-	sendErr = w.send(ctx, sr)
+	sendErr = w.send(ctx, sr, "")
 	require.NotNil(t, sendErr)
 	assert.Equal(t, 500, sendErr.StatusCode)
 	assert.False(t, sendErr.Permanent)
 	assert.Equal(t, 0, sendErr.RetryDelaySeconds)
 
 	transport.reset(429)
-	sendErr = w.send(ctx, sr)
+	sendErr = w.send(ctx, sr, "")
 	require.NotNil(t, sendErr)
 	assert.Equal(t, 429, sendErr.StatusCode)
 	assert.False(t, sendErr.Permanent)
@@ -187,7 +230,7 @@ func TestWorkerSendErrors(t *testing.T) {
 
 	transport.reset(429)
 	transport.headers = map[string]string{headerRetryAfter: "100"}
-	sendErr = w.send(ctx, sr)
+	sendErr = w.send(ctx, sr, "")
 	require.NotNil(t, sendErr)
 	assert.Equal(t, 429, sendErr.StatusCode)
 	assert.False(t, sendErr.Permanent)
@@ -195,7 +238,7 @@ func TestWorkerSendErrors(t *testing.T) {
 
 	transport.reset(200)
 	transport.err = errors.New("test error")
-	sendErr = w.send(ctx, sr)
+	sendErr = w.send(ctx, sr, "")
 	require.NotNil(t, sendErr)
 	assert.Equal(t, "Post \"http://local\": test error", sendErr.Error())
 	assert.Equal(t, 0, sendErr.StatusCode)

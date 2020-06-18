@@ -113,8 +113,16 @@ func New(opts ...Option) (*Client, error) {
 // Export takes a Jaeger batches and uses one of the available workers to export it synchronously.
 // It returns an error in case a request cannot be processed. It's up to the caller to retry.
 func (sa *Client) Export(ctx context.Context, batches []*jaegerpb.Batch) error {
+	return sa.ExportWithAccessToken(ctx, batches, "")
+}
+
+// ExportWithAccessToken takes a Jaeger batches and an SFx access token and uses one of the available
+// workers to export it synchronously, preferentially using the provided token and defaulting to the
+// worker's token if empty.
+// It returns an error in case a request cannot be processed. It's up to the caller to retry.
+func (sa *Client) ExportWithAccessToken(ctx context.Context, batches []*jaegerpb.Batch, accessToken string) error {
 	w := <-sa.workers
-	sendErr := w.export(ctx, batches)
+	sendErr := w.export(ctx, batches, accessToken)
 	sa.workers <- w
 	if sendErr != nil {
 		if sendErr.RetryDelaySeconds > 0 {
