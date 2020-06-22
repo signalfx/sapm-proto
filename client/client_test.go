@@ -50,7 +50,7 @@ func TestDefaults(t *testing.T) {
 
 func TestClient(t *testing.T) {
 	transport := &mockTransport{}
-	c, err := New(defaultEndpointOption, WithHTTPClient(newMockHTTPClient(transport)))
+	c, err := New(defaultEndpointOption, WithHTTPClient(newMockHTTPClient(transport)), WithAccessToken("ClientToken"))
 	require.NoError(t, err)
 
 	requestsBatches := [][]*jaegerpb.Batch{}
@@ -75,6 +75,78 @@ func TestClient(t *testing.T) {
 
 	for i, want := range requestsBatches {
 		assertRequestEqualBatches(t, requests[i].r, want)
+	}
+
+	for _, request := range requests {
+		assert.Equal(t, request.r.Header.Get(headerAccessToken), "ClientToken")
+	}
+}
+
+func TestClientExportWithAccessToken(t *testing.T) {
+	transport := &mockTransport{}
+	c, err := New(defaultEndpointOption, WithHTTPClient(newMockHTTPClient(transport)))
+	require.NoError(t, err)
+
+	requestsBatches := [][]*jaegerpb.Batch{}
+
+	for i := 0; i < 10; i++ {
+		batches := []*jaegerpb.Batch{
+			{
+				Process: &jaegerpb.Process{ServiceName: "test_service_" + strconv.Itoa(i)},
+				Spans:   []*jaegerpb.Span{{}},
+			},
+		}
+		requestsBatches = append(requestsBatches, batches)
+	}
+
+	for _, batches := range requestsBatches {
+		err := c.ExportWithAccessToken(context.Background(), batches, "Preferential")
+		require.Nil(t, err)
+	}
+
+	requests := transport.requests()
+	assert.Len(t, requests, len(requestsBatches))
+
+	for i, want := range requestsBatches {
+		assertRequestEqualBatches(t, requests[i].r, want)
+	}
+
+	for _, request := range requests {
+		assert.Equal(t, request.r.Header.Get(headerAccessToken), "Preferential")
+	}
+}
+
+func TestClientExportWithEmptyAccessToken(t *testing.T) {
+	transport := &mockTransport{}
+	c, err := New(defaultEndpointOption, WithHTTPClient(newMockHTTPClient(transport)), WithAccessToken("ClientToken"))
+	require.NoError(t, err)
+
+	requestsBatches := [][]*jaegerpb.Batch{}
+
+	for i := 0; i < 10; i++ {
+		batches := []*jaegerpb.Batch{
+			{
+				Process: &jaegerpb.Process{ServiceName: "test_service_" + strconv.Itoa(i)},
+				Spans:   []*jaegerpb.Span{{}},
+			},
+		}
+		requestsBatches = append(requestsBatches, batches)
+	}
+
+	for _, batches := range requestsBatches {
+		err := c.ExportWithAccessToken(context.Background(), batches, "")
+		require.Nil(t, err)
+	}
+
+	requests := transport.requests()
+	assert.Len(t, requests, len(requestsBatches))
+
+	for i, want := range requestsBatches {
+		assertRequestEqualBatches(t, requests[i].r, want)
+	}
+
+	for _, request := range requests {
+		assert.Equal(t, request.r.Header.Get(headerAccessToken), "ClientToken")
 	}
 }
 

@@ -54,7 +54,7 @@ func newWorker(client *http.Client, endpoint string, accessToken string, disable
 	return w
 }
 
-func (w *worker) export(ctx context.Context, batches []*jaegerpb.Batch) *ErrSend {
+func (w *worker) export(ctx context.Context, batches []*jaegerpb.Batch, accessToken string) *ErrSend {
 	ctx, span := trace.StartSpan(ctx, "export")
 	defer span.End()
 
@@ -78,7 +78,8 @@ func (w *worker) export(ctx context.Context, batches []*jaegerpb.Batch) *ErrSend
 		return &ErrSend{Err: err}
 	}
 
-	serr := w.send(ctx, sr)
+	serr := w.send(ctx, sr, accessToken)
+
 	if serr == nil {
 		recordSuccess(ctx, sr)
 		return nil
@@ -94,7 +95,7 @@ func (w *worker) export(ctx context.Context, batches []*jaegerpb.Batch) *ErrSend
 	return serr
 }
 
-func (w *worker) send(ctx context.Context, r *sendRequest) *ErrSend {
+func (w *worker) send(ctx context.Context, r *sendRequest, accessToken string) *ErrSend {
 	_, span := trace.StartSpan(ctx, "export")
 	defer span.End()
 
@@ -112,8 +113,12 @@ func (w *worker) send(ctx context.Context, r *sendRequest) *ErrSend {
 		req.Header.Add(headerContentEncoding, headerValueGZIP)
 	}
 
-	if w.accessToken != "" {
-		req.Header.Add(headerAccessToken, w.accessToken)
+	if accessToken == "" {
+		accessToken = w.accessToken
+	}
+
+	if accessToken != "" {
+		req.Header.Add(headerAccessToken, accessToken)
 	}
 
 	resp, err := w.client.Do(req)
