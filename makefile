@@ -33,10 +33,16 @@ all: check
 	$(MAKE) generate
 	$(MAKE) test
 
+JAEGER_DOCKER_PROTOBUF=jaegertracing/protobuf:0.2.0
+SAPM_PROTO_INCLUDES := -I/usr/include/github.com/gogo/protobuf
+SAPM_PROTOC := docker run --rm -u ${shell id -u} -v${PWD}:${PWD} -w${PWD} ${JAEGER_DOCKER_PROTOBUF} --proto_path=${PWD}
+
 .PHONY: generate
 generate:
 	mkdir -p gen
-	docker run --rm -v $(PWD):$(PWD) -w $(PWD) znly/protoc --gofast_out=./gen/ -I./ -I./vendor/github.com/gogo/protobuf/ -I./vendor/ proto/sapm.proto
+	$(SAPM_PROTOC) $(SAPM_PROTO_INCLUDES) --gogo_out=grpc,Mjaeger-idl/proto/api_v2/model.proto=github.com/jaegertracing/jaeger/model:./gen proto/sapm.proto
+	cp -R gen/proto/* gen/
+	rm -fr gen/proto
 
 .PHONY: check
 check: addlicense fmt vet lint goimports misspell staticcheck
