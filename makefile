@@ -115,7 +115,6 @@ install-tools:
 	GO111MODULE=on go install \
 	  github.com/google/addlicense \
 	  golang.org/x/lint/golint \
- 	  github.com/golangci/golangci-lint/cmd/golangci-lint \
 	  golang.org/x/tools/cmd/goimports \
 	  github.com/client9/misspell/cmd/misspell \
 	  honnef.co/go/tools/cmd/staticcheck \
