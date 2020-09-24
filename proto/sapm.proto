@@ -4,7 +4,17 @@ syntax="proto3";
 
 package splunk.sapm;
 
-import "github.com/jaegertracing/jaeger/model/model.proto";
+import "gogoproto/gogo.proto";
+import "jaeger-idl/proto/api_v2/model.proto";
+
+// Enable custom Marshal method.
+option (gogoproto.marshaler_all) = true;
+// Enable custom Unmarshal method.
+option (gogoproto.unmarshaler_all) = true;
+// Enable custom Size method (Required by Marshal and Unmarshal).
+option (gogoproto.sizer_all) = true;
+// Enable registration with golang/protobuf for the grpc-gateway.
+option (gogoproto.goproto_registration) = true;
 
 message PostSpansRequest {
     repeated jaeger.api_v2.Batch batches = 1;
