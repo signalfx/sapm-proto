@@ -34,7 +34,6 @@ const (
 
 	// default values
 	defaultNumWorkers  uint = 8
-	defaultMaxRetries  uint = 8
 	defaultMaxIdleCons      = 100
 	defaultHTTPTimeout      = 10 * time.Second
 )
