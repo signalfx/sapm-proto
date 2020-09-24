@@ -272,8 +272,7 @@ func TestWorkers(t *testing.T) {
 	then := time.Now()
 	for _, batches := range requestsBatches {
 		go func(b []*jaegerpb.Batch) {
-			err := c.Export(context.Background(), b)
-			assert.Nil(t, err)
+			assert.NoError(t, c.Export(context.Background(), b))
 			wg.Done()
 		}(batches)
 	}
