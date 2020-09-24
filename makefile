@@ -27,22 +27,81 @@ MISSPELL_CORRECTION=misspell -w
 STATICCHECK=staticcheck
 IMPI=impi
 
-
 .PHONY: all
 all: check
-	$(MAKE) generate
+	$(MAKE) generate-sapm
+	$(MAKE) generate-otlp
 	$(MAKE) test
 
 JAEGER_DOCKER_PROTOBUF=jaegertracing/protobuf:0.2.0
 SAPM_PROTO_INCLUDES := -I/usr/include/github.com/gogo/protobuf
 SAPM_PROTOC := docker run --rm -u ${shell id -u} -v${PWD}:${PWD} -w${PWD} ${JAEGER_DOCKER_PROTOBUF} --proto_path=${PWD}
+# Target directory to write generated files to.
+SAPM_TARGET_GEN_DIR=./gen
 
-.PHONY: generate
-generate:
-	mkdir -p gen
-	$(SAPM_PROTOC) $(SAPM_PROTO_INCLUDES) --gogo_out=grpc,Mjaeger-idl/proto/api_v2/model.proto=github.com/jaegertracing/jaeger/model:./gen proto/sapm.proto
-	cp -R gen/proto/* gen/
-	rm -fr gen/proto
+.PHONY: generate-sapm
+generate-sapm:
+	git submodule update --init
+
+	mkdir -p $(SAPM_TARGET_GEN_DIR)
+	$(SAPM_PROTOC) $(SAPM_PROTO_INCLUDES) --gogo_out=,Mjaeger-idl/proto/api_v2/model.proto=github.com/jaegertracing/jaeger/model:$(SAPM_TARGET_GEN_DIR) proto/sapm.proto
+
+	@echo Move generated code to target directory.
+	cp -R $(SAPM_TARGET_GEN_DIR)/proto/* $(SAPM_TARGET_GEN_DIR)
+	rm -fr $(SAPM_TARGET_GEN_DIR)/proto
+
+# Target directory to write generated files to.
+OTLP_GEN_GO_DIR=./gen/otlp
+
+# The source directory for OTLP ProtoBufs.
+OTLP_PROTO_SRC_DIR=opentelemetry-proto
+
+# Intermediate directory used during generation.
+OTLP_PROTO_INTERMEDIATE_DIR=$(OTLP_GEN_GO_DIR)/.patched-otlp-proto
+
+# Go package name to use for generated files.
+OTLP_PROTO_PACKAGE=github.com/signalfx/sapm-proto/$(OTLP_GEN_GO_DIR)
+
+# Find all .proto files.
+OTLP_PROTO_FILES := opentelemetry/proto/common/v1/common.proto opentelemetry/proto/resource/v1/resource.proto opentelemetry/proto/trace/v1/trace.proto opentelemetry/proto/collector/trace/v1/trace_service.proto
+
+OTEL_DOCKER_PROTOBUF ?= otel/build-protobuf:latest
+OTLP_PROTOC := docker run --rm -u ${shell id -u} -v${PWD}:${PWD} -w${PWD}/$(OTLP_PROTO_INTERMEDIATE_DIR) ${OTEL_DOCKER_PROTOBUF} --proto_path=${PWD}/$(OTLP_PROTO_INTERMEDIATE_DIR)
+PROTO_INCLUDES := -I/usr/include/github.com/gogo/protobuf
+
+# Function to execute a command. Note the empty line before endef to make sure each command
+# gets executed separately instead of concatenated with previous one.
+# Accepts command to execute as first parameter.
+define exec-command
+$(1)
+
+endef
+
+.PHONY: generate-otlp
+generate-otlp:
+	git submodule update --init
+
+	@echo Delete intermediate directory.
+	@rm -rf $(OTLP_PROTO_INTERMEDIATE_DIR)
+
+	@echo Delete target directory.
+	@rm -rf $(OTLP_GEN_GO_DIR)
+
+	@echo $(OTLP_PROTO_FILES)
+
+	@echo Copy .proto file to intermediate directory.
+	$(foreach file,$(OTLP_PROTO_FILES),$(call exec-command, mkdir -p $(OTLP_PROTO_INTERMEDIATE_DIR)/$(shell dirname "$(file)") && cp -R $(OTLP_PROTO_SRC_DIR)/$(file) $(OTLP_PROTO_INTERMEDIATE_DIR)/$(file)))
+
+	@echo Modify them in the intermediate directory.
+	$(foreach file,$(OTLP_PROTO_FILES),$(call exec-command,sed 's+github.com/open-telemetry/opentelemetry-proto/gen/go/+github.com/signalfx/sapm-proto/gen/otlp/+g' $(OTLP_PROTO_SRC_DIR)/$(file) > $(OTLP_PROTO_INTERMEDIATE_DIR)/$(file)))
+
+	@echo Generate Go code from .proto files in intermediate directory.
+	$(foreach file,$(OTLP_PROTO_FILES),$(call exec-command, $(OTLP_PROTOC) $(PROTO_INCLUDES) --gogofaster_out=:./ $(file)))
+
+	@echo Move generated code to target directory.
+	mkdir -p $(OTLP_GEN_GO_DIR)
+	cp -R $(OTLP_PROTO_INTERMEDIATE_DIR)/$(OTLP_PROTO_PACKAGE)/* $(OTLP_GEN_GO_DIR)/
+	rm -rf $(OTLP_PROTO_INTERMEDIATE_DIR)
 
 .PHONY: check
 check: addlicense fmt vet lint goimports misspell staticcheck
