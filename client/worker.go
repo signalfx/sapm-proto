@@ -25,7 +25,6 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/golang/protobuf/proto"
 	jaegerpb "github.com/jaegertracing/jaeger/model"
 	"go.opencensus.io/trace"
 
@@ -188,7 +187,7 @@ func (w *worker) prepare(ctx context.Context, batches []*jaegerpb.Batch, spansCo
 		Batches: batches,
 	}
 
-	encoded, err := proto.Marshal(psr)
+	encoded, err := psr.Marshal()
 	if err != nil {
 		span.SetStatus(trace.Status{
 			Code:    trace.StatusCodeInvalidArgument,

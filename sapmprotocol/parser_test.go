@@ -28,15 +28,13 @@ import (
 
 	"github.com/jaegertracing/jaeger/model"
 
-	"github.com/golang/protobuf/proto"
-
 	splunksapm "github.com/signalfx/sapm-proto/gen"
 )
 
 func TestNewV2TraceHandler(t *testing.T) {
 	var zipper *gzip.Writer
 	validSapm := &splunksapm.PostSpansRequest{}
-	validProto, _ := proto.Marshal(validSapm)
+	validProto, _ := validSapm.Marshal()
 	uncompressedValidProtobufReq := httptest.NewRequest(http.MethodPost, path.Join("http://localhost", TraceEndpointV2), bytes.NewReader(validProto))
 	uncompressedValidProtobufReq.Header.Set(ContentTypeHeaderName, ContentTypeHeaderValue)
 
@@ -162,7 +160,8 @@ func BenchmarkDecode(b *testing.B) {
 			StartTime: time.Now().UTC()})
 	}
 
-	bb, err := proto.Marshal(&splunksapm.PostSpansRequest{Batches: []*model.Batch{batch}})
+	sapmReq := splunksapm.PostSpansRequest{Batches: []*model.Batch{batch}}
+	bb, err := sapmReq.Marshal()
 	if err != nil {
 		b.Fatal(err.Error())
 	}
