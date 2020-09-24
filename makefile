@@ -36,7 +36,7 @@ all: check
 .PHONY: generate
 generate:
 	mkdir -p gen
-	docker run --rm -v $(PWD):$(PWD) -w $(PWD) znly/protoc --gofast_out=./gen/ -I./ -I./vendor/github.com/gogo/protobuf/ -I./vendor/ sapm.proto
+	docker run --rm -v $(PWD):$(PWD) -w $(PWD) znly/protoc --gofast_out=./gen/ -I./ -I./vendor/github.com/gogo/protobuf/ -I./vendor/ proto/sapm.proto
 
 .PHONY: check
 check: addlicense fmt vet lint goimports misspell staticcheck
