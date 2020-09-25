@@ -22,7 +22,7 @@ import (
 	"github.com/signalfx/sapm-proto/sapmprotocol"
 )
 
-// ParseRequest parses from the request (unzip if needed) an OTLP protobuf,
+// ParseRequest parses from the request (unzip if needed) from OTLP protobuf,
 // and converts it to SAPM.
 func ParseRequest(req *http.Request) (*splunksapm.PostSpansRequest, error) {
 	otlp := otlpcoltrace.ExportTraceServiceRequest{}
