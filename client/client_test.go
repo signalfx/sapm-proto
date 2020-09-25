@@ -178,7 +178,7 @@ func TestFailure(t *testing.T) {
 
 	err = c.Export(context.Background(), batches)
 	require.NotNil(t, err)
-	assert.Equal(t, "Post \"http://local\": transport error", err.Error())
+	assert.Contains(t, err.Error(), "transport error")
 
 	requests = transport.requests()
 	require.Len(t, requests, 1)
