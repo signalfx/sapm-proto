@@ -15,3 +15,9 @@ jobs:
       - run:
           name: Test
           command: make test
+      - run:
+          name: Coverage tests
+          command: make test-with-cover
+      - run:
+          name: Coverage push
+          command: bash <(curl -s https://codecov.io/bash)
