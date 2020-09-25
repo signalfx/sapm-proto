@@ -240,7 +240,7 @@ func TestWorkerSendErrors(t *testing.T) {
 	transport.err = errors.New("test error")
 	sendErr = w.send(ctx, sr, "")
 	require.NotNil(t, sendErr)
-	assert.Equal(t, "Post \"http://local\": test error", sendErr.Error())
+	assert.Contains(t, sendErr.Error(), "test error")
 	assert.Equal(t, 0, sendErr.StatusCode)
 	assert.False(t, sendErr.Permanent)
 	assert.Equal(t, 0, sendErr.RetryDelaySeconds)

@@ -10,5 +10,8 @@ jobs:
           name: Install tools
           command: make install-tools
       - run:
-          name: Verify
+          name: Check
           command: make check
+      - run:
+          name: Test
+          command: make test
