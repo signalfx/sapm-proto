@@ -66,7 +66,6 @@ func TestParseRequest(t *testing.T) {
 	req = httptest.NewRequest("GET", "http://signalfx.com/v1/traces", bytes.NewReader(reqBody))
 	req.Header["Content-Type"] = []string{"application/x-protobuf"}
 	sapm, err = ParseRequest(req)
-	// No "Content-Type".
 	assert.NoError(t, err)
 	assert.EqualValues(t, &expected, sapm)
 }
