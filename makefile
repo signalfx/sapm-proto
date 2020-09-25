@@ -18,9 +18,7 @@ $(1)
 
 endef
 
-PROTO_PACKAGE_PATH?=./gen/
-GOTEST_OPT?= -race -timeout 30s
-GOTEST=go test
+GO_ACC=go-acc
 GOOS=$(shell go env GOOS)
 ADDLICENCESE=addlicense
 MISSPELL=misspell -error
@@ -135,6 +133,13 @@ staticcheck:
 impi:
 	@$(IMPI) --local github.com/signalfx/sapm-proto --scheme stdThirdPartyLocal $(ALL_SRC)
 
+.PHONY: test-with-cover
+test-with-cover:
+	@echo pre-compiling tests
+	go test -i $(ALL_PKGS)
+	$(GO_ACC) $(ALL_PKGS)
+	go tool cover -html=coverage.txt -o coverage.html
+
 .PHONY: install-tools
 install-tools:
 	GO111MODULE=on go install \
@@ -142,5 +147,5 @@ install-tools:
  	  github.com/golangci/golangci-lint/cmd/golangci-lint \
 	  github.com/client9/misspell/cmd/misspell \
 	  honnef.co/go/tools/cmd/staticcheck \
+	  github.com/ory/go-acc \
 	  github.com/pavius/impi/cmd/impi
-
