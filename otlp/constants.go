@@ -27,8 +27,8 @@ const (
 	tagHTTPStatusCode = "http.status_code"
 
 	tagW3CTraceState          = "w3c.tracestate"
-	tagInstrumentationName    = "otlp.instrumentation_library.name"
-	tagInstrumentationVersion = "otlp.instrumentation_library.version"
+	tagInstrumentationName    = "otlp.library.name"
+	tagInstrumentationVersion = "otlp.library.version"
 )
 
 // Constants used for signifying batch-level attribute values where not supplied by OTLP data but required
