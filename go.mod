@@ -1,6 +1,6 @@
 module github.com/signalfx/sapm-proto
 
-go 1.12
+go 1.13
 
 require (
 	github.com/client9/misspell v0.3.4
