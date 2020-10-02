@@ -64,7 +64,7 @@ OTLP_PROTO_PACKAGE=github.com/signalfx/sapm-proto/$(OTLP_GEN_GO_DIR)
 # Find all .proto files.
 OTLP_PROTO_FILES := opentelemetry/proto/common/v1/common.proto opentelemetry/proto/resource/v1/resource.proto opentelemetry/proto/trace/v1/trace.proto opentelemetry/proto/collector/trace/v1/trace_service.proto
 
-OTEL_DOCKER_PROTOBUF ?= otel/build-protobuf:latest
+OTEL_DOCKER_PROTOBUF ?= otel/build-protobuf:0.1.0
 OTLP_PROTOC := docker run --rm -u ${shell id -u} -v${PWD}:${PWD} -w${PWD}/$(OTLP_PROTO_INTERMEDIATE_DIR) ${OTEL_DOCKER_PROTOBUF} --proto_path=${PWD}/$(OTLP_PROTO_INTERMEDIATE_DIR)
 PROTO_INCLUDES := -I/usr/include/github.com/gogo/protobuf
 
