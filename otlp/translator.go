@@ -213,6 +213,9 @@ func getJaegerProtoSpanTags(span *otlptrace.Span, instLibrary *otlpcommon.Instru
 	}
 	status := span.Status
 	if status != nil {
+		// First of all handle the deprecated status if present and the new code is not set.
+		handleDeprecatedStatusCode(status)
+
 		statusCodeTag, statusCodeTagFound = getTagFromStatusCode(status.Code)
 		if statusCodeTagFound {
 			tagsCount++
@@ -343,7 +346,7 @@ func spanEventsToJaegerProtoLogs(events []*otlptrace.Span_Event) []model.Log {
 		fields := make([]model.KeyValue, 0, fieldsCount)
 		if hasName {
 			fields = append(fields, model.KeyValue{
-				Key:   tagMessage,
+				Key:   tagEventName,
 				VType: model.ValueType_STRING,
 				VStr:  event.Name,
 			})
@@ -386,16 +389,31 @@ func getTagFromSpanKind(spanKind otlptrace.Span_SpanKind) (model.KeyValue, bool)
 	}, true
 }
 
+func handleDeprecatedStatusCode(status *otlptrace.Status) {
+	// Apply rules defined by the deprecation transition
+	// https://github.com/open-telemetry/opentelemetry-proto/blob/main/opentelemetry/proto/trace/v1/trace.proto#L254
+	if status.Code == otlptrace.Status_STATUS_CODE_UNSET && status.DeprecatedCode != otlptrace.Status_DEPRECATED_STATUS_CODE_OK {
+		status.Code = otlptrace.Status_STATUS_CODE_ERROR
+	}
+}
+
 func getTagFromStatusCode(statusCode otlptrace.Status_StatusCode) (model.KeyValue, bool) {
+	// Ignore status when code is not set
+	// https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/trace/sdk_exporters/jaeger.md#status
+	if statusCode == otlptrace.Status_STATUS_CODE_UNSET {
+		return model.KeyValue{}, false
+	}
 	return model.KeyValue{
-		Key:    tagStatusCode,
+		Key:    tagOtelStatusCode,
 		VInt64: int64(statusCode),
 		VType:  model.ValueType_INT64,
 	}, true
 }
 
 func getErrorTagFromStatusCode(statusCode otlptrace.Status_StatusCode) (model.KeyValue, bool) {
-	if statusCode == otlptrace.Status_STATUS_CODE_OK {
+	// Error tag is set only if the status code is error.
+	// https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/trace/sdk_exporters/jaeger.md#error-flag
+	if statusCode != otlptrace.Status_STATUS_CODE_ERROR {
 		return model.KeyValue{}, false
 	}
 	return model.KeyValue{
@@ -410,7 +428,7 @@ func getTagFromStatusMsg(statusMsg string) (model.KeyValue, bool) {
 		return model.KeyValue{}, false
 	}
 	return model.KeyValue{
-		Key:   tagStatusMsg,
+		Key:   tagOtelStatusMsg,
 		VStr:  statusMsg,
 		VType: model.ValueType_STRING,
 	}, true
@@ -435,7 +453,7 @@ func getTagsFromInstrumentationLibrary(il *otlpcommon.InstrumentationLibrary) ([
 	}
 	if il.Name != "" {
 		kv := model.KeyValue{
-			Key:   tagInstrumentationName,
+			Key:   tagOtelInstrumentationName,
 			VStr:  il.Name,
 			VType: model.ValueType_STRING,
 		}
@@ -443,7 +461,7 @@ func getTagsFromInstrumentationLibrary(il *otlpcommon.InstrumentationLibrary) ([
 	}
 	if il.Version != "" {
 		kv := model.KeyValue{
-			Key:   tagInstrumentationVersion,
+			Key:   tagOtelInstrumentationVersion,
 			VStr:  il.Version,
 			VType: model.ValueType_STRING,
 		}
