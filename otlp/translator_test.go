@@ -46,43 +46,85 @@ func TestGetTagFromStatusCode(t *testing.T) {
 		name string
 		code otlptrace.Status_StatusCode
 		tag  model.KeyValue
+		ok   bool
 	}{
+		{
+			name: "unset",
+			code: otlptrace.Status_STATUS_CODE_UNSET,
+			tag:  model.KeyValue{},
+			ok:   false,
+		},
+
 		{
 			name: "ok",
 			code: otlptrace.Status_STATUS_CODE_OK,
 			tag: model.KeyValue{
-				Key:    tagStatusCode,
+				Key:    tagOtelStatusCode,
 				VInt64: int64(otlptrace.Status_STATUS_CODE_OK),
 				VType:  model.ValueType_INT64,
 			},
+			ok: true,
 		},
 
 		{
-			name: "unknown",
-			code: otlptrace.Status_STATUS_CODE_UNKNOWN_ERROR,
+			name: "error",
+			code: otlptrace.Status_STATUS_CODE_ERROR,
 			tag: model.KeyValue{
-				Key:    tagStatusCode,
-				VInt64: int64(otlptrace.Status_STATUS_CODE_UNKNOWN_ERROR),
+				Key:    tagOtelStatusCode,
+				VInt64: int64(otlptrace.Status_STATUS_CODE_ERROR),
 				VType:  model.ValueType_INT64,
 			},
-		},
-
-		{
-			name: "not-found",
-			code: otlptrace.Status_STATUS_CODE_NOT_FOUND,
-			tag: model.KeyValue{
-				Key:    tagStatusCode,
-				VInt64: int64(otlptrace.Status_STATUS_CODE_NOT_FOUND),
-				VType:  model.ValueType_INT64,
-			},
+			ok: true,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			got, ok := getTagFromStatusCode(test.code)
-			assert.True(t, ok)
-			assert.EqualValues(t, test.tag, got)
+			assert.Equal(t, test.ok, ok)
+			assert.Equal(t, test.tag, got)
+		})
+	}
+}
+
+func TestHandleDeprecatedCode(t *testing.T) {
+	tests := []struct {
+		name           string
+		code           otlptrace.Status_StatusCode
+		deprecatedCode otlptrace.Status_DeprecatedStatusCode
+		expectedCode   otlptrace.Status_StatusCode
+	}{
+		{
+			name:           "code_unset_deprecated_ok",
+			code:           otlptrace.Status_STATUS_CODE_UNSET,
+			deprecatedCode: otlptrace.Status_DEPRECATED_STATUS_CODE_OK,
+			expectedCode:   otlptrace.Status_STATUS_CODE_UNSET,
+		},
+		{
+			name:           "code_unset_deprecated_error",
+			code:           otlptrace.Status_STATUS_CODE_UNSET,
+			deprecatedCode: otlptrace.Status_DEPRECATED_STATUS_CODE_DEADLINE_EXCEEDED,
+			expectedCode:   otlptrace.Status_STATUS_CODE_ERROR,
+		},
+		{
+			name:           "code_ok",
+			code:           otlptrace.Status_STATUS_CODE_OK,
+			deprecatedCode: otlptrace.Status_DEPRECATED_STATUS_CODE_DEADLINE_EXCEEDED,
+			expectedCode:   otlptrace.Status_STATUS_CODE_OK,
+		},
+		{
+			name:           "code_error",
+			code:           otlptrace.Status_STATUS_CODE_ERROR,
+			deprecatedCode: otlptrace.Status_DEPRECATED_STATUS_CODE_DEADLINE_EXCEEDED,
+			expectedCode:   otlptrace.Status_STATUS_CODE_ERROR,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			status := &otlptrace.Status{DeprecatedCode: test.deprecatedCode, Code: test.code}
+			handleDeprecatedStatusCode(status)
+			assert.Equal(t, test.expectedCode, status.Code)
 		})
 	}
 }
@@ -94,14 +136,13 @@ func TestGetErrorTagFromStatusCode(t *testing.T) {
 		VType: model.ValueType_BOOL,
 	}
 
-	_, ok := getErrorTagFromStatusCode(otlptrace.Status_STATUS_CODE_OK)
+	_, ok := getErrorTagFromStatusCode(otlptrace.Status_STATUS_CODE_UNSET)
 	assert.False(t, ok)
 
-	got, ok := getErrorTagFromStatusCode(otlptrace.Status_STATUS_CODE_UNKNOWN_ERROR)
-	assert.True(t, ok)
-	assert.EqualValues(t, errTag, got)
+	_, ok = getErrorTagFromStatusCode(otlptrace.Status_STATUS_CODE_OK)
+	assert.False(t, ok)
 
-	got, ok = getErrorTagFromStatusCode(otlptrace.Status_STATUS_CODE_NOT_FOUND)
+	got, ok := getErrorTagFromStatusCode(otlptrace.Status_STATUS_CODE_ERROR)
 	assert.True(t, ok)
 	assert.EqualValues(t, errTag, got)
 }
@@ -113,7 +154,7 @@ func TestGetTagFromStatusMsg(t *testing.T) {
 	got, ok = getTagFromStatusMsg("test-error")
 	assert.True(t, ok)
 	assert.EqualValues(t, model.KeyValue{
-		Key:   tagStatusMsg,
+		Key:   tagOtelStatusMsg,
 		VStr:  "test-error",
 		VType: model.ValueType_STRING,
 	}, got)
@@ -698,9 +739,9 @@ func TestInternalTracesToJaegerProto(t *testing.T) {
 func generateProtoChildSpanWithErrorTags() *model.Span {
 	span := generateProtoChildSpan()
 	span.Tags = append(span.Tags, model.KeyValue{
-		Key:    tagStatusCode,
+		Key:    tagOtelStatusCode,
 		VType:  model.ValueType_INT64,
-		VInt64: int64(otlptrace.Status_STATUS_CODE_NOT_FOUND),
+		VInt64: int64(otlptrace.Status_STATUS_CODE_ERROR),
 	})
 	span.Tags = append(span.Tags, model.KeyValue{
 		Key:   tagError,
@@ -762,7 +803,7 @@ func generateProtoSpan() *model.Span {
 				Timestamp: testSpanEventTime,
 				Fields: []model.KeyValue{
 					{
-						Key:   tagMessage,
+						Key:   tagEventName,
 						VType: model.ValueType_STRING,
 						VStr:  "event-with-attr",
 					},
@@ -791,9 +832,9 @@ func generateProtoSpan() *model.Span {
 				VStr:  openTracingSpanKindClient,
 			},
 			{
-				Key:    tagStatusCode,
+				Key:    tagOtelStatusCode,
 				VType:  model.ValueType_INT64,
-				VInt64: int64(otlptrace.Status_STATUS_CODE_CANCELLED),
+				VInt64: int64(otlptrace.Status_STATUS_CODE_ERROR),
 			},
 			{
 				Key:   tagError,
@@ -801,7 +842,7 @@ func generateProtoSpan() *model.Span {
 				VType: model.ValueType_BOOL,
 			},
 			{
-				Key:   tagStatusMsg,
+				Key:   tagOtelStatusMsg,
 				VType: model.ValueType_STRING,
 				VStr:  "status-cancelled",
 			},
@@ -860,12 +901,12 @@ func generateProtoFollowerSpan() *model.Span {
 				VStr:  openTracingSpanKindConsumer,
 			},
 			{
-				Key:    tagStatusCode,
+				Key:    tagOtelStatusCode,
 				VType:  model.ValueType_INT64,
 				VInt64: int64(otlptrace.Status_STATUS_CODE_OK),
 			},
 			{
-				Key:   tagStatusMsg,
+				Key:   tagOtelStatusMsg,
 				VType: model.ValueType_STRING,
 				VStr:  "status-ok",
 			},
@@ -885,12 +926,12 @@ func generateProtoSpanWithLibraryInfo(libraryName string) *model.Span {
 	span.Tags = append([]model.KeyValue{
 		{
 
-			Key:   tagInstrumentationName,
+			Key:   tagOtelInstrumentationName,
 			VType: model.ValueType_STRING,
 			VStr:  libraryName,
 		},
 		{
-			Key:   tagInstrumentationVersion,
+			Key:   tagOtelInstrumentationVersion,
 			VType: model.ValueType_STRING,
 			VStr:  "0.42.0",
 		},
@@ -961,7 +1002,7 @@ func generateOtlpSpan() *otlptrace.Span {
 		},
 	}
 	span.Status = &otlptrace.Status{
-		Code:    otlptrace.Status_STATUS_CODE_CANCELLED,
+		Code:    otlptrace.Status_STATUS_CODE_ERROR,
 		Message: "status-cancelled",
 	}
 	return span
@@ -975,7 +1016,7 @@ func generateOtlpChildSpan() *otlptrace.Span {
 	span.ParentSpanId = originalSpanID
 	span.Kind = otlptrace.Span_SPAN_KIND_SERVER
 	span.Status = &otlptrace.Status{
-		Code: otlptrace.Status_STATUS_CODE_NOT_FOUND,
+		Code: otlptrace.Status_STATUS_CODE_ERROR,
 	}
 	span.Events = nil
 	span.Attributes = []*otlpcommon.KeyValue{

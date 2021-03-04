@@ -375,6 +375,7 @@ func (m *StringKeyValue) GetValue() string {
 // InstrumentationLibrary is a message representing the instrumentation library information
 // such as the fully qualified name and version.
 type InstrumentationLibrary struct {
+	// An empty instrumentation library name means the name is unknown.
 	Name    string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Version string `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
 }
@@ -1152,10 +1153,7 @@ func (m *AnyValue) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthCommon
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthCommon
 			}
 			if (iNdEx + skippy) > l {
@@ -1239,10 +1237,7 @@ func (m *ArrayValue) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthCommon
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthCommon
 			}
 			if (iNdEx + skippy) > l {
@@ -1326,10 +1321,7 @@ func (m *KeyValueList) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthCommon
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthCommon
 			}
 			if (iNdEx + skippy) > l {
@@ -1447,10 +1439,7 @@ func (m *KeyValue) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthCommon
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthCommon
 			}
 			if (iNdEx + skippy) > l {
@@ -1564,10 +1553,7 @@ func (m *StringKeyValue) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthCommon
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthCommon
 			}
 			if (iNdEx + skippy) > l {
@@ -1681,10 +1667,7 @@ func (m *InstrumentationLibrary) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthCommon
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthCommon
 			}
 			if (iNdEx + skippy) > l {

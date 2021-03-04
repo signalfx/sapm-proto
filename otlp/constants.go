@@ -19,16 +19,16 @@ package otlp
 const (
 	attributeServiceName = "service.name"
 
-	tagMessage        = "message"
+	tagEventName      = "event"
 	tagSpanKind       = "span.kind"
-	tagStatusCode     = "status.code"
-	tagStatusMsg      = "status.message"
+	tagOtelStatusCode = "otel.status_code"
+	tagOtelStatusMsg  = "otel.status_description"
 	tagError          = "error"
 	tagHTTPStatusCode = "http.status_code"
 
-	tagW3CTraceState          = "w3c.tracestate"
-	tagInstrumentationName    = "otel.library.name"
-	tagInstrumentationVersion = "otel.library.version"
+	tagW3CTraceState              = "w3c.tracestate"
+	tagOtelInstrumentationName    = "otel.library.name"
+	tagOtelInstrumentationVersion = "otel.library.version"
 )
 
 // Constants used for signifying batch-level attribute values where not supplied by OTLP data but required
