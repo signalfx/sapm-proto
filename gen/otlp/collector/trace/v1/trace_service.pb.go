@@ -4,9 +4,13 @@
 package v1
 
 import (
+	context "context"
 	fmt "fmt"
 	proto "github.com/gogo/protobuf/proto"
 	v1 "github.com/signalfx/sapm-proto/gen/otlp/trace/v1"
+	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 	io "io"
 	math "math"
 	math_bits "math/bits"
@@ -138,6 +142,90 @@ var fileDescriptor_192a962890318cf4 = []byte{
 	0xcf, 0x4b, 0xcc, 0x49, 0xab, 0xd0, 0x2f, 0x4e, 0x2c, 0xc8, 0xd5, 0x85, 0xc4, 0x61, 0x7a, 0x6a,
 	0x9e, 0x7e, 0x7e, 0x49, 0x4e, 0x01, 0x96, 0x04, 0x93, 0xc4, 0x06, 0x56, 0x62, 0x0c, 0x08, 0x00,
 	0x00, 0xff, 0xff, 0xfc, 0x19, 0x76, 0x7d, 0x61, 0x02, 0x00, 0x00,
+}
+
+// Reference imports to suppress errors if they are not otherwise used.
+var _ context.Context
+var _ grpc.ClientConn
+
+// This is a compile-time assertion to ensure that this generated file
+// is compatible with the grpc package it is being compiled against.
+const _ = grpc.SupportPackageIsVersion4
+
+// TraceServiceClient is the client API for TraceService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
+type TraceServiceClient interface {
+	// For performance reasons, it is recommended to keep this RPC
+	// alive for the entire life of the application.
+	Export(ctx context.Context, in *ExportTraceServiceRequest, opts ...grpc.CallOption) (*ExportTraceServiceResponse, error)
+}
+
+type traceServiceClient struct {
+	cc *grpc.ClientConn
+}
+
+func NewTraceServiceClient(cc *grpc.ClientConn) TraceServiceClient {
+	return &traceServiceClient{cc}
+}
+
+func (c *traceServiceClient) Export(ctx context.Context, in *ExportTraceServiceRequest, opts ...grpc.CallOption) (*ExportTraceServiceResponse, error) {
+	out := new(ExportTraceServiceResponse)
+	err := c.cc.Invoke(ctx, "/opentelemetry.proto.collector.trace.v1.TraceService/Export", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// TraceServiceServer is the server API for TraceService service.
+type TraceServiceServer interface {
+	// For performance reasons, it is recommended to keep this RPC
+	// alive for the entire life of the application.
+	Export(context.Context, *ExportTraceServiceRequest) (*ExportTraceServiceResponse, error)
+}
+
+// UnimplementedTraceServiceServer can be embedded to have forward compatible implementations.
+type UnimplementedTraceServiceServer struct {
+}
+
+func (*UnimplementedTraceServiceServer) Export(ctx context.Context, req *ExportTraceServiceRequest) (*ExportTraceServiceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Export not implemented")
+}
+
+func RegisterTraceServiceServer(s *grpc.Server, srv TraceServiceServer) {
+	s.RegisterService(&_TraceService_serviceDesc, srv)
+}
+
+func _TraceService_Export_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExportTraceServiceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TraceServiceServer).Export(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/opentelemetry.proto.collector.trace.v1.TraceService/Export",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TraceServiceServer).Export(ctx, req.(*ExportTraceServiceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+var _TraceService_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "opentelemetry.proto.collector.trace.v1.TraceService",
+	HandlerType: (*TraceServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Export",
+			Handler:    _TraceService_Export_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "opentelemetry/proto/collector/trace/v1/trace_service.proto",
 }
 
 func (m *ExportTraceServiceRequest) Marshal() (dAtA []byte, err error) {
