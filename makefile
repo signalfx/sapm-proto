@@ -87,7 +87,7 @@ generate-otlp:
 	$(foreach file,$(OTLP_PROTO_FILES),$(call exec-command,sed 's+github.com/open-telemetry/opentelemetry-proto/gen/go/+github.com/signalfx/sapm-proto/gen/otlp/+g' $(OTLP_PROTO_SRC_DIR)/$(file) > $(OTLP_PROTO_INTERMEDIATE_DIR)/$(file)))
 
 	@echo Generate Go code from .proto files in intermediate directory.
-	$(foreach file,$(OTLP_PROTO_FILES),$(call exec-command, $(OTLP_PROTOC) $(PROTO_INCLUDES) --gogofaster_out=:./ $(file)))
+	$(foreach file,$(OTLP_PROTO_FILES),$(call exec-command, $(OTLP_PROTOC) $(PROTO_INCLUDES) --gogofaster_out=plugins=grpc:./ $(file)))
 
 	@echo Move generated code to target directory.
 	mkdir -p $(OTLP_GEN_GO_DIR)
