@@ -14,5 +14,6 @@ require (
 	github.com/pavius/impi v0.0.3
 	github.com/stretchr/testify v1.7.0
 	go.opencensus.io v0.23.0
+	google.golang.org/grpc v1.33.2
 	honnef.co/go/tools v0.1.2
 )
