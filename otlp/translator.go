@@ -28,8 +28,8 @@ import (
 	otlptrace "github.com/signalfx/sapm-proto/gen/otlp/trace/v1"
 )
 
-// otlpToSAPM translates otlp trace proto into the SAPM Proto.
-func otlpToSAPM(td otlpcoltrace.ExportTraceServiceRequest) (*splunksapm.PostSpansRequest, error) {
+// ToSAPM translates otlp trace proto into the SAPM Proto.
+func ToSAPM(td otlpcoltrace.ExportTraceServiceRequest) (*splunksapm.PostSpansRequest, error) {
 	sapm := &splunksapm.PostSpansRequest{}
 	if len(td.ResourceSpans) == 0 {
 		return sapm, nil
