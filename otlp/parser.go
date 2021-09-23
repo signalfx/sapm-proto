@@ -29,5 +29,5 @@ func ParseRequest(req *http.Request) (*splunksapm.PostSpansRequest, error) {
 	if err := sapmprotocol.ParseSapmRequest(req, &otlp); err != nil {
 		return nil, err
 	}
-	return otlpToSAPM(otlp)
+	return ToSAPM(otlp)
 }

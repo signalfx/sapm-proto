@@ -724,7 +724,7 @@ func TestInternalTracesToJaegerProto(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			jbs, err := otlpToSAPM(test.td)
+			jbs, err := ToSAPM(test.td)
 			if test.hasErr {
 				assert.Error(t, err)
 				assert.Nil(t, jbs)
@@ -770,7 +770,7 @@ func BenchmarkInternalTracesToJaegerProto(b *testing.B) {
 
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		_, err := otlpToSAPM(td)
+		_, err := ToSAPM(td)
 		assert.NoError(b, err)
 	}
 }
