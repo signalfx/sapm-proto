@@ -23,7 +23,6 @@ GOOS=$(shell go env GOOS)
 ADDLICENCESE=addlicense
 MISSPELL=misspell -error
 MISSPELL_CORRECTION=misspell -w
-STATICCHECK=staticcheck
 IMPI=impi
 
 .PHONY: all
@@ -95,7 +94,7 @@ generate-otlp:
 	rm -rf $(OTLP_PROTO_INTERMEDIATE_DIR)
 
 .PHONY: check
-check: addlicense lint misspell staticcheck
+check: addlicense lint misspell
 
 .PHONY: test
 test:
@@ -125,10 +124,6 @@ misspell:
 misspell-correction:
 	$(MISSPELL_CORRECTION) $(ALL_DOCS)
 
-.PHONY: staticcheck
-staticcheck:
-	$(STATICCHECK) $(ALL_PKGS)
-
 .PHONY: impi
 impi:
 	@$(IMPI) --local github.com/signalfx/sapm-proto --scheme stdThirdPartyLocal $(ALL_SRC)
@@ -140,12 +135,11 @@ test-with-cover:
 	$(GO_ACC) $(ALL_PKGS)
 	go tool cover -html=coverage.txt -o coverage.html
 
+TOOLS_MOD_DIR := ./internal/tools
 .PHONY: install-tools
 install-tools:
-	GO111MODULE=on go install \
-	  github.com/google/addlicense \
- 	  github.com/golangci/golangci-lint/cmd/golangci-lint \
-	  github.com/client9/misspell/cmd/misspell \
-	  honnef.co/go/tools/cmd/staticcheck \
-	  github.com/ory/go-acc \
-	  github.com/pavius/impi/cmd/impi
+	cd $(TOOLS_MOD_DIR) && go install github.com/client9/misspell/cmd/misspell
+	cd $(TOOLS_MOD_DIR) && go install github.com/golangci/golangci-lint/cmd/golangci-lint
+	cd $(TOOLS_MOD_DIR) && go install github.com/google/addlicense
+	cd $(TOOLS_MOD_DIR) && go install github.com/ory/go-acc
+	cd $(TOOLS_MOD_DIR) && go install github.com/pavius/impi/cmd/impi

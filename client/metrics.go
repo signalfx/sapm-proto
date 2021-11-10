@@ -50,11 +50,11 @@ func metricViews() []*view.View {
 	}
 }
 
-func recordEncodingFailure(ctx context.Context, sr *sendRequest) {
+func recordEncodingFailure(ctx context.Context, _ *sendRequest) {
 	stats.Record(ctx, mFailedEncodings.M(1))
 }
 
-func recordSendFailure(ctx context.Context, sr *sendRequest) {
+func recordSendFailure(ctx context.Context, _ *sendRequest) {
 	stats.Record(ctx, mRequestsFailed.M(1))
 }
 

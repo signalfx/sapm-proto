@@ -1035,7 +1035,7 @@ func generateOtlpFollowerSpan() *otlptrace.Span {
 	span.Name = "operationC"
 	span.SpanId = []byte{0x1F, 0x1E, 0x1D, 0x1C, 0x1B, 0x1A, 0x19, 0x18}
 	span.StartTimeUnixNano = span.EndTimeUnixNano
-	span.EndTimeUnixNano = span.EndTimeUnixNano + 1000000
+	span.EndTimeUnixNano += 1000000
 	span.Kind = otlptrace.Span_SPAN_KIND_CONSUMER
 	span.Events = []*otlptrace.Span_Event{
 		nil,
