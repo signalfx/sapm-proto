@@ -39,7 +39,7 @@ const (
 
 const (
 	defaultRateLimitingBackoffSeconds = 8
-	headerAccessToken                 = "X-SF-Token"
+	headerAccessToken                 = "X-SF-Token" // nolint:gosec
 	headerRetryAfter                  = "Retry-After"
 	headerContentEncoding             = "Content-Encoding"
 	headerContentType                 = "Content-Type"

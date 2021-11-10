@@ -15,7 +15,7 @@
 
 // +build tools
 
-package main
+package tools
 
 // This file follows the recommendation at
 // https://github.com/golang/go/wiki/Modules#how-can-i-track-tool-dependencies-for-a-module
@@ -28,5 +28,4 @@ import (
 	_ "github.com/google/addlicense"
 	_ "github.com/ory/go-acc"
 	_ "github.com/pavius/impi/cmd/impi"
-	_ "honnef.co/go/tools/cmd/staticcheck"
 )
