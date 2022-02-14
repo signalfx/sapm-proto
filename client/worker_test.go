@@ -27,6 +27,7 @@ import (
 	jaegerpb "github.com/jaegertracing/jaeger/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/trace"
 
 	gen "github.com/signalfx/sapm-proto/gen"
 )
@@ -69,12 +70,16 @@ var (
 )
 
 func newTestWorker(c *http.Client) *worker {
-	return newWorker(c, "http://local", "", false)
+	return newWorker(c, "http://local", "", false, trace.NewNoopTracerProvider())
+}
+
+func newTestWorkerWithCompression(c *http.Client, disableCompression bool) *worker {
+	return newWorker(c, "http://local", "", disableCompression, trace.NewNoopTracerProvider())
 }
 
 func TestPrepare(t *testing.T) {
 	w := newTestWorker(newMockHTTPClient(&mockTransport{}))
-	sr, err := w.prepare(context.Background(), testBatches, testSpansCount)
+	sr, err := w.prepare(testBatches, testSpansCount)
 	assert.NoError(t, err)
 
 	assert.Equal(t, testBatchesCount, int(sr.batches))
@@ -101,8 +106,8 @@ func TestPrepare(t *testing.T) {
 }
 
 func TestPrepareNoCompression(t *testing.T) {
-	w := newWorker(newMockHTTPClient(&mockTransport{}), "http://local", "", true)
-	sr, err := w.prepare(context.Background(), testBatches, testSpansCount)
+	w := newTestWorkerWithCompression(newMockHTTPClient(&mockTransport{}), true)
+	sr, err := w.prepare(testBatches, testSpansCount)
 	assert.NoError(t, err)
 
 	assert.Equal(t, testBatchesCount, int(sr.batches))
@@ -121,11 +126,10 @@ func TestWorkerSend(t *testing.T) {
 	transport := &mockTransport{}
 	w := newTestWorker(newMockHTTPClient(transport))
 
-	ctx := context.Background()
-	sr, err := w.prepare(ctx, testBatches, testBatchesCount)
+	sr, err := w.prepare(testBatches, testBatchesCount)
 	require.NoError(t, err)
 
-	err = w.send(ctx, sr, "")
+	err = w.send(context.Background(), sr, "")
 	require.Nil(t, err)
 
 	received := transport.requests()
@@ -141,11 +145,10 @@ func TestWorkerSendWithAccessToken(t *testing.T) {
 	transport := &mockTransport{}
 	w := newTestWorker(newMockHTTPClient(transport))
 
-	ctx := context.Background()
-	sr, err := w.prepare(ctx, testBatches, testBatchesCount)
+	sr, err := w.prepare(testBatches, testBatchesCount)
 	require.NoError(t, err)
 
-	err = w.send(ctx, sr, "Preferential")
+	err = w.send(context.Background(), sr, "Preferential")
 	require.Nil(t, err)
 
 	received := transport.requests()
@@ -163,11 +166,10 @@ func TestWorkerSendDefaultsToWorkerToken(t *testing.T) {
 	w := newTestWorker(newMockHTTPClient(transport))
 	w.accessToken = "WorkerToken"
 
-	ctx := context.Background()
-	sr, err := w.prepare(ctx, testBatches, testBatchesCount)
+	sr, err := w.prepare(testBatches, testBatchesCount)
 	require.NoError(t, err)
 
-	err = w.send(ctx, sr, "")
+	err = w.send(context.Background(), sr, "")
 	require.Nil(t, err)
 
 	received := transport.requests()
@@ -182,13 +184,12 @@ func TestWorkerSendDefaultsToWorkerToken(t *testing.T) {
 
 func TestWorkerSendNoCompression(t *testing.T) {
 	transport := &mockTransport{}
-	w := newWorker(newMockHTTPClient(transport), "http://local", "", true)
+	w := newTestWorkerWithCompression(newMockHTTPClient(transport), true)
 
-	ctx := context.Background()
-	sr, err := w.prepare(ctx, testBatches, testBatchesCount)
+	sr, err := w.prepare(testBatches, testBatchesCount)
 	require.NoError(t, err)
 
-	err = w.send(ctx, sr, "")
+	err = w.send(context.Background(), sr, "")
 	require.Nil(t, err)
 
 	received := transport.requests()
@@ -204,25 +205,24 @@ func TestWorkerSendErrors(t *testing.T) {
 	transport := &mockTransport{statusCode: 400}
 	w := newTestWorker(newMockHTTPClient(transport))
 
-	ctx := context.Background()
-	sr, err := w.prepare(ctx, testBatches, testBatchesCount)
+	sr, err := w.prepare(testBatches, testBatchesCount)
 	require.NoError(t, err)
 
-	sendErr := w.send(ctx, sr, "")
+	sendErr := w.send(context.Background(), sr, "")
 	require.NotNil(t, sendErr)
 	assert.Equal(t, 400, sendErr.StatusCode)
 	assert.True(t, sendErr.Permanent)
 	assert.Equal(t, 0, sendErr.RetryDelaySeconds)
 
 	transport.reset(500)
-	sendErr = w.send(ctx, sr, "")
+	sendErr = w.send(context.Background(), sr, "")
 	require.NotNil(t, sendErr)
 	assert.Equal(t, 500, sendErr.StatusCode)
 	assert.False(t, sendErr.Permanent)
 	assert.Equal(t, 0, sendErr.RetryDelaySeconds)
 
 	transport.reset(429)
-	sendErr = w.send(ctx, sr, "")
+	sendErr = w.send(context.Background(), sr, "")
 	require.NotNil(t, sendErr)
 	assert.Equal(t, 429, sendErr.StatusCode)
 	assert.False(t, sendErr.Permanent)
@@ -230,7 +230,7 @@ func TestWorkerSendErrors(t *testing.T) {
 
 	transport.reset(429)
 	transport.headers = map[string]string{headerRetryAfter: "100"}
-	sendErr = w.send(ctx, sr, "")
+	sendErr = w.send(context.Background(), sr, "")
 	require.NotNil(t, sendErr)
 	assert.Equal(t, 429, sendErr.StatusCode)
 	assert.False(t, sendErr.Permanent)
@@ -238,7 +238,7 @@ func TestWorkerSendErrors(t *testing.T) {
 
 	transport.reset(200)
 	transport.err = errors.New("test error")
-	sendErr = w.send(ctx, sr, "")
+	sendErr = w.send(context.Background(), sr, "")
 	require.NotNil(t, sendErr)
 	assert.Contains(t, sendErr.Error(), "test error")
 	assert.Equal(t, 0, sendErr.StatusCode)

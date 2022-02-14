@@ -14,7 +14,11 @@
 
 package client
 
-import "net/http"
+import (
+	"net/http"
+
+	"go.opentelemetry.io/otel/trace"
+)
 
 // Option takes a reference to a Client and sets relevant config fields on it.
 type Option func(*Client) error
@@ -64,6 +68,15 @@ func WithAccessToken(t string) Option {
 func WithDisabledCompression() Option {
 	return func(a *Client) error {
 		a.disableCompression = true
+		return nil
+	}
+}
+
+// WithTracerProvider returns an Option to use the TracerProvider when
+// creating a Tracer.
+func WithTracerProvider(tracerProvider trace.TracerProvider) Option {
+	return func(a *Client) error {
+		a.tracerProvider = tracerProvider
 		return nil
 	}
 }

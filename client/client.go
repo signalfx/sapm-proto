@@ -24,6 +24,9 @@ import (
 
 	jaegerpb "github.com/jaegertracing/jaeger/model"
 	"go.opencensus.io/stats/view"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -46,6 +49,7 @@ type sendRequest struct {
 
 // Client implements an HTTP sender for the SAPM protocol
 type Client struct {
+	tracerProvider     trace.TracerProvider
 	numWorkers         uint
 	maxIdleCons        uint
 	endpoint           string
@@ -82,27 +86,38 @@ func New(opts ...Option) (*Client, error) {
 		)
 	}
 
+	var clientTransport http.RoundTripper
+	clientTransport = &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   dialerTimeout,
+			KeepAlive: dialerKeepAlive,
+		}).DialContext,
+		MaxIdleConns:        int(c.maxIdleCons),
+		MaxIdleConnsPerHost: int(c.maxIdleCons),
+		IdleConnTimeout:     idleConnTimeout,
+		TLSHandshakeTimeout: tlsHandshakeTimeout,
+	}
+
+	if c.tracerProvider != nil {
+		clientTransport = otelhttp.NewTransport(
+			clientTransport,
+			otelhttp.WithTracerProvider(c.tracerProvider),
+			otelhttp.WithPropagators(otel.GetTextMapPropagator()),
+		)
+	}
+
 	if c.httpClient == nil {
 		c.httpClient = &http.Client{
-			Timeout: defaultHTTPTimeout,
-			Transport: &http.Transport{
-				Proxy: http.ProxyFromEnvironment,
-				DialContext: (&net.Dialer{
-					Timeout:   dialerTimeout,
-					KeepAlive: dialerKeepAlive,
-				}).DialContext,
-				MaxIdleConns:        int(c.maxIdleCons),
-				MaxIdleConnsPerHost: int(c.maxIdleCons),
-				IdleConnTimeout:     idleConnTimeout,
-				TLSHandshakeTimeout: tlsHandshakeTimeout,
-			},
+			Timeout:   defaultHTTPTimeout,
+			Transport: clientTransport,
 		}
 	}
 
 	c.closeCh = make(chan struct{})
 	c.workers = make(chan *worker, c.numWorkers)
 	for i := uint(0); i < c.numWorkers; i++ {
-		w := newWorker(c.httpClient, c.endpoint, c.accessToken, c.disableCompression)
+		w := newWorker(c.httpClient, c.endpoint, c.accessToken, c.disableCompression, c.tracerProvider)
 		c.workers <- w
 	}
 
@@ -121,6 +136,7 @@ func (sa *Client) Export(ctx context.Context, batches []*jaegerpb.Batch) error {
 // It returns an error in case a request cannot be processed. It's up to the caller to retry.
 func (sa *Client) ExportWithAccessToken(ctx context.Context, batches []*jaegerpb.Batch, accessToken string) error {
 	w := <-sa.workers
+
 	sendErr := w.export(ctx, batches, accessToken)
 	sa.workers <- w
 	if sendErr != nil {
