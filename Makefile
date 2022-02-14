@@ -97,6 +97,10 @@ generate-otlp:
 .PHONY: check
 check: addlicense lint misspell
 
+.PHONY: gomoddownload
+gomoddownload:
+	go mod download
+
 .PHONY: test
 test:
 	go test ./...
