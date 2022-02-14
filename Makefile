@@ -1,4 +1,5 @@
 ALL_SRC := $(shell find . -name '*.go' \
+                                -not -path './internal/tools/*' \
                                 -not -path './gen/*' \
                                 -type f | sort)
 
@@ -130,8 +131,6 @@ impi:
 
 .PHONY: test-with-cover
 test-with-cover:
-	@echo pre-compiling tests
-	go test -i $(ALL_PKGS)
 	$(GO_ACC) $(ALL_PKGS)
 	go tool cover -html=coverage.txt -o coverage.html
 
