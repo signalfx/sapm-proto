@@ -50,50 +50,6 @@ generate-sapm:
 	cp -R $(SAPM_TARGET_GEN_DIR)/proto/* $(SAPM_TARGET_GEN_DIR)
 	rm -fr $(SAPM_TARGET_GEN_DIR)/proto
 
-# Target directory to write generated files to.
-OTLP_GEN_GO_DIR=./gen/otlp
-
-# The source directory for OTLP ProtoBufs.
-OTLP_PROTO_SRC_DIR=opentelemetry-proto
-
-# Intermediate directory used during generation.
-OTLP_PROTO_INTERMEDIATE_DIR=$(OTLP_GEN_GO_DIR)/.patched-otlp-proto
-
-# Go package name to use for generated files.
-OTLP_PROTO_PACKAGE=github.com/signalfx/sapm-proto/$(OTLP_GEN_GO_DIR)
-
-# Find all .proto files.
-OTLP_PROTO_FILES := opentelemetry/proto/common/v1/common.proto opentelemetry/proto/resource/v1/resource.proto opentelemetry/proto/trace/v1/trace.proto opentelemetry/proto/collector/trace/v1/trace_service.proto
-
-OTLP_PROTOC := docker run --rm -u ${shell id -u} -v${PWD}:${PWD} -w${PWD}/$(OTLP_PROTO_INTERMEDIATE_DIR) ${OTEL_DOCKER_PROTOBUF} --proto_path=${PWD}/$(OTLP_PROTO_INTERMEDIATE_DIR)
-PROTO_INCLUDES := -I/usr/include/github.com/gogo/protobuf
-
-.PHONY: generate-otlp
-generate-otlp:
-	git submodule update --init
-
-	@echo Delete intermediate directory.
-	@rm -rf $(OTLP_PROTO_INTERMEDIATE_DIR)
-
-	@echo Delete target directory.
-	@rm -rf $(OTLP_GEN_GO_DIR)
-
-	@echo $(OTLP_PROTO_FILES)
-
-	@echo Copy .proto file to intermediate directory.
-	$(foreach file,$(OTLP_PROTO_FILES),$(call exec-command, mkdir -p $(OTLP_PROTO_INTERMEDIATE_DIR)/$(shell dirname "$(file)") && cp -R $(OTLP_PROTO_SRC_DIR)/$(file) $(OTLP_PROTO_INTERMEDIATE_DIR)/$(file)))
-
-	@echo Modify them in the intermediate directory.
-	$(foreach file,$(OTLP_PROTO_FILES),$(call exec-command,sed 's+github.com/open-telemetry/opentelemetry-proto/gen/go/+github.com/signalfx/sapm-proto/gen/otlp/+g' $(OTLP_PROTO_SRC_DIR)/$(file) > $(OTLP_PROTO_INTERMEDIATE_DIR)/$(file)))
-
-	@echo Generate Go code from .proto files in intermediate directory.
-	$(foreach file,$(OTLP_PROTO_FILES),$(call exec-command, $(OTLP_PROTOC) $(PROTO_INCLUDES) --gogofaster_out=plugins=grpc:./ $(file)))
-
-	@echo Move generated code to target directory.
-	mkdir -p $(OTLP_GEN_GO_DIR)
-	cp -R $(OTLP_PROTO_INTERMEDIATE_DIR)/$(OTLP_PROTO_PACKAGE)/* $(OTLP_GEN_GO_DIR)/
-	rm -rf $(OTLP_PROTO_INTERMEDIATE_DIR)
-
 .PHONY: check
 check: addlicense lint misspell
 
