@@ -26,7 +26,9 @@ import (
 	"strconv"
 
 	jaegerpb "github.com/jaegertracing/jaeger/model"
-	"go.opencensus.io/trace"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	sapmpb "github.com/signalfx/sapm-proto/gen"
 )
@@ -35,6 +37,7 @@ import (
 // and data corruption. In case a caller needs to export multiple requests at the same time, it should
 // use one worker per request.
 type worker struct {
+	tracer             trace.Tracer
 	client             *http.Client
 	accessToken        string
 	endpoint           string
@@ -42,8 +45,12 @@ type worker struct {
 	disableCompression bool
 }
 
-func newWorker(client *http.Client, endpoint string, accessToken string, disableCompression bool) *worker {
+func newWorker(client *http.Client, endpoint string, accessToken string, disableCompression bool, tracerProvider trace.TracerProvider) *worker {
+	if tracerProvider == nil {
+		tracerProvider = trace.NewNoopTracerProvider()
+	}
 	w := &worker{
+		tracer:             tracerProvider.Tracer("github.com/signalfx/sapm-proto/client"),
 		client:             client,
 		accessToken:        accessToken,
 		endpoint:           endpoint,
@@ -54,7 +61,7 @@ func newWorker(client *http.Client, endpoint string, accessToken string, disable
 }
 
 func (w *worker) export(ctx context.Context, batches []*jaegerpb.Batch, accessToken string) *ErrSend {
-	ctx, span := trace.StartSpan(ctx, "export")
+	ctx, span := w.tracer.Start(ctx, "export")
 	defer span.End()
 
 	var spansCount int
@@ -62,32 +69,30 @@ func (w *worker) export(ctx context.Context, batches []*jaegerpb.Batch, accessTo
 		spansCount += len(batch.Spans)
 	}
 
-	span.AddAttributes(trace.Int64Attribute("spans", int64(spansCount)))
-	span.AddAttributes(trace.Int64Attribute("batches", int64(len(batches))))
+	span.SetAttributes(attribute.Int64("spans", int64(spansCount)))
+	span.SetAttributes(attribute.Int64("batches", int64(len(batches))))
+
 	if spansCount == 0 {
 		return nil
 	}
 
-	sr, err := w.prepare(ctx, batches, spansCount)
+	sr, err := w.prepare(batches, spansCount)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "")
 		recordEncodingFailure(ctx, sr)
-		span.SetStatus(trace.Status{
-			Code: trace.StatusCodeInvalidArgument,
-		})
 		return &ErrSend{Err: err}
 	}
 
 	serr := w.send(ctx, sr, accessToken)
-
 	if serr == nil {
 		recordSuccess(ctx, sr)
 		return nil
 	}
-	recordSendFailure(ctx, sr)
-	span.SetStatus(trace.Status{
-		Code: OCStatusCodeFromHTTP(int32(serr.StatusCode)),
-	})
+	span.RecordError(err)
+	span.SetStatus(codes.Error, "")
 
+	recordSendFailure(ctx, sr)
 	if serr.Permanent {
 		recordDrops(ctx, sr)
 	}
@@ -95,15 +100,8 @@ func (w *worker) export(ctx context.Context, batches []*jaegerpb.Batch, accessTo
 }
 
 func (w *worker) send(ctx context.Context, r *sendRequest, accessToken string) *ErrSend {
-	_, span := trace.StartSpan(ctx, "export")
-	defer span.End()
-
-	req, err := http.NewRequest("POST", w.endpoint, bytes.NewBuffer(r.message))
+	req, err := http.NewRequestWithContext(ctx, "POST", w.endpoint, bytes.NewBuffer(r.message))
 	if err != nil {
-		span.SetStatus(trace.Status{
-			Code:    trace.StatusCodeInvalidArgument,
-			Message: err.Error(),
-		})
 		return &ErrSend{Err: err, Permanent: true}
 	}
 	req.Header.Add(headerContentType, headerValueXProtobuf)
@@ -122,10 +120,6 @@ func (w *worker) send(ctx context.Context, r *sendRequest, accessToken string) *
 
 	resp, err := w.client.Do(req)
 	if err != nil {
-		span.SetStatus(trace.Status{
-			Code:    trace.StatusCodeInternal,
-			Message: err.Error(),
-		})
 		return &ErrSend{Err: err}
 	}
 	io.CopyN(ioutil.Discard, resp.Body, maxHTTPBodyReadBytes)
@@ -138,10 +132,6 @@ func (w *worker) send(ctx context.Context, r *sendRequest, accessToken string) *
 	// Drop the batch if server thinks it is malformed in some way or client is not authorized
 	if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnauthorized {
 		msg := fmt.Sprintf("server responded with: %d", resp.StatusCode)
-		span.SetStatus(trace.Status{
-			Code:    OCStatusCodeFromHTTP(int32(resp.StatusCode)),
-			Message: msg,
-		})
 		return &ErrSend{
 			Err:        fmt.Errorf("dropping request: %s", msg),
 			StatusCode: http.StatusBadRequest,
@@ -159,7 +149,6 @@ func (w *worker) send(ctx context.Context, r *sendRequest, accessToken string) *
 				retryAfter = seconds
 			}
 		}
-		span.SetStatus(trace.Status{Code: trace.StatusCodeResourceExhausted})
 		return &ErrSend{
 			Err:               errors.New("server responded with 429"),
 			StatusCode:        resp.StatusCode,
@@ -170,7 +159,6 @@ func (w *worker) send(ctx context.Context, r *sendRequest, accessToken string) *
 	// TODO: handle 301, 307, 308
 	// redirects are not handled right now but should be to confirm with the spec.
 
-	span.SetStatus(trace.Status{Code: OCStatusCodeFromHTTP(int32(resp.StatusCode))})
 	return &ErrSend{
 		Err:        fmt.Errorf("error exporting spans. server responded with status %d", resp.StatusCode),
 		StatusCode: resp.StatusCode,
@@ -179,21 +167,14 @@ func (w *worker) send(ctx context.Context, r *sendRequest, accessToken string) *
 
 // prepare takes a jaeger batches, converts them to a SAPM PostSpansRequest, compresses it and returns a request ready
 // to be sent.
-func (w *worker) prepare(ctx context.Context, batches []*jaegerpb.Batch, spansCount int) (*sendRequest, error) {
-	_, span := trace.StartSpan(ctx, "export")
-	defer span.End()
-
+func (w *worker) prepare(batches []*jaegerpb.Batch, spansCount int) (*sendRequest, error) {
 	psr := &sapmpb.PostSpansRequest{
 		Batches: batches,
 	}
 
 	encoded, err := psr.Marshal()
 	if err != nil {
-		span.SetStatus(trace.Status{
-			Code:    trace.StatusCodeInvalidArgument,
-			Message: "failed to marshal request",
-		})
-		return nil, err
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	if w.disableCompression {
@@ -207,21 +188,12 @@ func (w *worker) prepare(ctx context.Context, batches []*jaegerpb.Batch, spansCo
 	buf := bytes.NewBuffer([]byte{})
 	w.gzipWriter.Reset(buf)
 
-	_, err = w.gzipWriter.Write(encoded)
-	if err != nil {
-		span.SetStatus(trace.Status{
-			Code:    trace.StatusCodeInvalidArgument,
-			Message: "failed to gzip request",
-		})
-		return nil, err
+	if _, err = w.gzipWriter.Write(encoded); err != nil {
+		return nil, fmt.Errorf("failed to gzip request: %w", err)
 	}
 
-	if err := w.gzipWriter.Close(); err != nil {
-		span.SetStatus(trace.Status{
-			Code:    trace.StatusCodeInvalidArgument,
-			Message: "failed to gzip request",
-		})
-		return nil, err
+	if err = w.gzipWriter.Close(); err != nil {
+		return nil, fmt.Errorf("failed to gzip request: %w", err)
 	}
 	sr := &sendRequest{
 		message: buf.Bytes(),
