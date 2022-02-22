@@ -18,6 +18,7 @@ import (
 	"net/http"
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/translator/jaeger"
+
 	"go.opentelemetry.io/collector/model/otlpgrpc"
 
 	splunksapm "github.com/signalfx/sapm-proto/gen"
@@ -43,7 +44,7 @@ func ParseRequest(req *http.Request) (*splunksapm.PostSpansRequest, error) {
 		return nil, err
 	}
 
-	batches, err := jaeger.InternalTracesToJaegerProto(otlpUnmarshaler.TracesRequest.Traces())
+	batches, err := jaeger.ProtoFromTraces(otlpUnmarshaler.TracesRequest.Traces())
 	if err != nil {
 		return nil, err
 	}
