@@ -81,7 +81,7 @@ func (w *worker) export(ctx context.Context, batches []*jaegerpb.Batch, accessTo
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "")
 		recordEncodingFailure(ctx, sr)
-		return &ErrSend{Err: err}
+		return &ErrSend{Err: err, Permanent: true}
 	}
 
 	serr := w.send(ctx, sr, accessToken)
