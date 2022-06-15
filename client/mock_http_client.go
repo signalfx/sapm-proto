@@ -34,6 +34,7 @@ type mockTransport struct {
 	headers    map[string]string
 	err        error
 	received   []*request
+	body       string
 }
 
 func (m *mockTransport) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -47,7 +48,7 @@ func (m *mockTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 
 	resp := &http.Response{
 		StatusCode: m.statusCode,
-		Body:       ioutil.NopCloser(strings.NewReader("")),
+		Body:       ioutil.NopCloser(strings.NewReader(m.body)),
 	}
 	resp.Header = http.Header{}
 	for k, v := range m.headers {

@@ -21,9 +21,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"strconv"
+
+	"github.com/signalfx/golib/v3/sfxclient/spanfilter"
 
 	jaegerpb "github.com/jaegertracing/jaeger/model"
 	"go.opentelemetry.io/otel/attribute"
@@ -32,6 +33,13 @@ import (
 
 	sapmpb "github.com/signalfx/sapm-proto/gen"
 )
+
+// IngestResponse encapsulates the body of response returned by trace ingest and any error encountered
+// by the worker while reading the body.
+type IngestResponse struct {
+	Body *spanfilter.Map
+	Err  error
+}
 
 // worker is not safe to be called from multiple goroutines. Each caller must use locks to avoid races
 // and data corruption. In case a caller needs to export multiple requests at the same time, it should
@@ -60,7 +68,7 @@ func newWorker(client *http.Client, endpoint string, accessToken string, disable
 	return w
 }
 
-func (w *worker) export(ctx context.Context, batches []*jaegerpb.Batch, accessToken string) *ErrSend {
+func (w *worker) export(ctx context.Context, batches []*jaegerpb.Batch, accessToken string) (*IngestResponse, *ErrSend) {
 	ctx, span := w.tracer.Start(ctx, "export")
 	defer span.End()
 
@@ -73,7 +81,7 @@ func (w *worker) export(ctx context.Context, batches []*jaegerpb.Batch, accessTo
 	span.SetAttributes(attribute.Int64("batches", int64(len(batches))))
 
 	if spansCount == 0 {
-		return nil
+		return nil, nil
 	}
 
 	sr, err := w.prepare(batches, spansCount)
@@ -81,13 +89,13 @@ func (w *worker) export(ctx context.Context, batches []*jaegerpb.Batch, accessTo
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "")
 		recordEncodingFailure(ctx, sr)
-		return &ErrSend{Err: err, Permanent: true}
+		return nil, &ErrSend{Err: err, Permanent: true}
 	}
 
-	serr := w.send(ctx, sr, accessToken)
+	responseBody, serr := w.send(ctx, sr, accessToken)
 	if serr == nil {
 		recordSuccess(ctx, sr)
-		return nil
+		return nil, nil
 	}
 	span.RecordError(err)
 	span.SetStatus(codes.Error, "")
@@ -96,13 +104,13 @@ func (w *worker) export(ctx context.Context, batches []*jaegerpb.Batch, accessTo
 	if serr.Permanent {
 		recordDrops(ctx, sr)
 	}
-	return serr
+	return responseBody, serr
 }
 
-func (w *worker) send(ctx context.Context, r *sendRequest, accessToken string) *ErrSend {
+func (w *worker) send(ctx context.Context, r *sendRequest, accessToken string) (*IngestResponse, *ErrSend) {
 	req, err := http.NewRequestWithContext(ctx, "POST", w.endpoint, bytes.NewBuffer(r.message))
 	if err != nil {
-		return &ErrSend{Err: err, Permanent: true}
+		return nil, &ErrSend{Err: err, Permanent: true}
 	}
 	req.Header.Add(headerContentType, headerValueXProtobuf)
 
@@ -120,19 +128,25 @@ func (w *worker) send(ctx context.Context, r *sendRequest, accessToken string) *
 
 	resp, err := w.client.Do(req)
 	if err != nil {
-		return &ErrSend{Err: err}
+		return nil, &ErrSend{Err: err}
 	}
-	io.CopyN(ioutil.Discard, resp.Body, maxHTTPBodyReadBytes)
+
 	defer resp.Body.Close()
+	bodyBytes, err := io.ReadAll(resp.Body)
+
+	ingestResponse := &IngestResponse{Body: spanfilter.FromBytes(bodyBytes)}
+	if err != nil {
+		ingestResponse.Err = fmt.Errorf("failed to read ingest response: %w", err)
+	}
 
 	if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
-		return nil
+		return ingestResponse, nil
 	}
 
 	// Drop the batch if server thinks it is malformed in some way or client is not authorized
 	if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnauthorized {
 		msg := fmt.Sprintf("server responded with: %d", resp.StatusCode)
-		return &ErrSend{
+		return ingestResponse, &ErrSend{
 			Err:        fmt.Errorf("dropping request: %s", msg),
 			StatusCode: http.StatusBadRequest,
 			Permanent:  true,
@@ -149,7 +163,7 @@ func (w *worker) send(ctx context.Context, r *sendRequest, accessToken string) *
 				retryAfter = seconds
 			}
 		}
-		return &ErrSend{
+		return ingestResponse, &ErrSend{
 			Err:               errors.New("server responded with 429"),
 			StatusCode:        resp.StatusCode,
 			RetryDelaySeconds: retryAfter,
@@ -159,7 +173,7 @@ func (w *worker) send(ctx context.Context, r *sendRequest, accessToken string) *
 	// TODO: handle 301, 307, 308
 	// redirects are not handled right now but should be to confirm with the spec.
 
-	return &ErrSend{
+	return ingestResponse, &ErrSend{
 		Err:        fmt.Errorf("error exporting spans. server responded with status %d", resp.StatusCode),
 		StatusCode: resp.StatusCode,
 	}

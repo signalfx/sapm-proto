@@ -45,7 +45,6 @@ const (
 	headerContentType                 = "Content-Type"
 	headerValueGZIP                   = "gzip"
 	headerValueXProtobuf              = "application/x-protobuf"
-	maxHTTPBodyReadBytes              = 256 << 10
 )
 
 var httpToOCCodeMap = map[int32]int32{
