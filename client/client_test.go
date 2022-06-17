@@ -406,6 +406,6 @@ func TestPauses(t *testing.T) {
 
 	wg.Wait()
 	for _, e := range elapsed {
-		assert.True(t, e >= time.Second*time.Duration(retryDelaySeconds))
+		assert.True(t, e >= time.Duration(retryDelaySeconds))
 	}
 }
