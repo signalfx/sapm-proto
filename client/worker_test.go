@@ -23,8 +23,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/signalfx/golib/v3/sfxclient/spanfilter"
-
 	"github.com/gogo/protobuf/proto"
 	jaegerpb "github.com/jaegertracing/jaeger/model"
 	"github.com/stretchr/testify/assert"
@@ -258,36 +256,25 @@ func TestWorkerIngestResponse(t *testing.T) {
 	sr, err := w.prepare(testBatches, testBatchesCount)
 	require.NoError(t, err)
 
-	expectedResponse := &IngestResponse{
-		Body: &spanfilter.Map{
-			Valid: 3,
-			Invalid: map[string][]string{
-				"invalidSpanID":  {"traceID:invalidSpanID"},
-				"invalidTraceID": {"invalidTraceID:spanid"},
-				"zeroTraceID":    {"0000000000000000:0000000000000000"},
-			},
-		},
-		Err: nil,
-	}
 	ingestResponse, sendErr := w.send(context.Background(), sr, "")
 	require.Nil(t, sendErr)
-	assert.Equal(t, expectedResponse, ingestResponse)
+	assert.Equal(t, response, string(ingestResponse.Body))
 
 	transport.reset(400)
 	ingestResponse, sendErr = w.send(context.Background(), sr, "")
 	require.NotNil(t, sendErr)
 	assert.Equal(t, 400, sendErr.StatusCode)
-	assert.Equal(t, expectedResponse, ingestResponse)
+	assert.Equal(t, response, string(ingestResponse.Body))
 
 	transport.reset(429)
 	ingestResponse, sendErr = w.send(context.Background(), sr, "")
 	require.NotNil(t, sendErr)
 	assert.Equal(t, 429, sendErr.StatusCode)
-	assert.Equal(t, expectedResponse, ingestResponse)
+	assert.Equal(t, response, string(ingestResponse.Body))
 
 	transport.reset(500)
 	ingestResponse, sendErr = w.send(context.Background(), sr, "")
 	require.NotNil(t, sendErr)
 	assert.Equal(t, 500, sendErr.StatusCode)
-	assert.Equal(t, expectedResponse, ingestResponse)
+	assert.Equal(t, response, string(ingestResponse.Body))
 }

@@ -24,8 +24,6 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/signalfx/golib/v3/sfxclient/spanfilter"
-
 	jaegerpb "github.com/jaegertracing/jaeger/model"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -37,7 +35,7 @@ import (
 // IngestResponse encapsulates the body of response returned by trace ingest and any error encountered
 // by the worker while reading the body.
 type IngestResponse struct {
-	Body *spanfilter.Map
+	Body []byte
 	Err  error
 }
 
@@ -131,13 +129,9 @@ func (w *worker) send(ctx context.Context, r *sendRequest, accessToken string) (
 		return nil, &ErrSend{Err: err}
 	}
 
-	defer resp.Body.Close()
 	bodyBytes, err := io.ReadAll(resp.Body)
-
-	ingestResponse := &IngestResponse{Body: spanfilter.FromBytes(bodyBytes)}
-	if err != nil {
-		ingestResponse.Err = fmt.Errorf("failed to read ingest response: %w", err)
-	}
+	ingestResponse := &IngestResponse{bodyBytes, err}
+	defer resp.Body.Close()
 
 	if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
 		return ingestResponse, nil
