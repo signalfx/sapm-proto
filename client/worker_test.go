@@ -129,7 +129,7 @@ func TestWorkerSend(t *testing.T) {
 	sr, err := w.prepare(testBatches, testBatchesCount)
 	require.NoError(t, err)
 
-	err = w.send(context.Background(), sr, "")
+	_, err = w.send(context.Background(), sr, "")
 	require.Nil(t, err)
 
 	received := transport.requests()
@@ -148,7 +148,7 @@ func TestWorkerSendWithAccessToken(t *testing.T) {
 	sr, err := w.prepare(testBatches, testBatchesCount)
 	require.NoError(t, err)
 
-	err = w.send(context.Background(), sr, "Preferential")
+	_, err = w.send(context.Background(), sr, "Preferential")
 	require.Nil(t, err)
 
 	received := transport.requests()
@@ -169,7 +169,7 @@ func TestWorkerSendDefaultsToWorkerToken(t *testing.T) {
 	sr, err := w.prepare(testBatches, testBatchesCount)
 	require.NoError(t, err)
 
-	err = w.send(context.Background(), sr, "")
+	_, err = w.send(context.Background(), sr, "")
 	require.Nil(t, err)
 
 	received := transport.requests()
@@ -189,7 +189,7 @@ func TestWorkerSendNoCompression(t *testing.T) {
 	sr, err := w.prepare(testBatches, testBatchesCount)
 	require.NoError(t, err)
 
-	err = w.send(context.Background(), sr, "")
+	_, err = w.send(context.Background(), sr, "")
 	require.Nil(t, err)
 
 	received := transport.requests()
@@ -208,21 +208,21 @@ func TestWorkerSendErrors(t *testing.T) {
 	sr, err := w.prepare(testBatches, testBatchesCount)
 	require.NoError(t, err)
 
-	sendErr := w.send(context.Background(), sr, "")
+	_, sendErr := w.send(context.Background(), sr, "")
 	require.NotNil(t, sendErr)
 	assert.Equal(t, 400, sendErr.StatusCode)
 	assert.True(t, sendErr.Permanent)
 	assert.Equal(t, 0, sendErr.RetryDelaySeconds)
 
 	transport.reset(500)
-	sendErr = w.send(context.Background(), sr, "")
+	_, sendErr = w.send(context.Background(), sr, "")
 	require.NotNil(t, sendErr)
 	assert.Equal(t, 500, sendErr.StatusCode)
 	assert.False(t, sendErr.Permanent)
 	assert.Equal(t, 0, sendErr.RetryDelaySeconds)
 
 	transport.reset(429)
-	sendErr = w.send(context.Background(), sr, "")
+	_, sendErr = w.send(context.Background(), sr, "")
 	require.NotNil(t, sendErr)
 	assert.Equal(t, 429, sendErr.StatusCode)
 	assert.False(t, sendErr.Permanent)
@@ -230,7 +230,7 @@ func TestWorkerSendErrors(t *testing.T) {
 
 	transport.reset(429)
 	transport.headers = map[string]string{headerRetryAfter: "100"}
-	sendErr = w.send(context.Background(), sr, "")
+	_, sendErr = w.send(context.Background(), sr, "")
 	require.NotNil(t, sendErr)
 	assert.Equal(t, 429, sendErr.StatusCode)
 	assert.False(t, sendErr.Permanent)
@@ -238,10 +238,43 @@ func TestWorkerSendErrors(t *testing.T) {
 
 	transport.reset(200)
 	transport.err = errors.New("test error")
-	sendErr = w.send(context.Background(), sr, "")
+	_, sendErr = w.send(context.Background(), sr, "")
 	require.NotNil(t, sendErr)
 	assert.Contains(t, sendErr.Error(), "test error")
 	assert.Equal(t, 0, sendErr.StatusCode)
 	assert.False(t, sendErr.Permanent)
 	assert.Equal(t, 0, sendErr.RetryDelaySeconds)
+}
+
+func TestWorkerIngestResponse(t *testing.T) {
+	response := `{"valid": 3, "invalid":{"invalidSpanID": ["traceID:invalidSpanID"],
+		"invalidTraceID": ["invalidTraceID:spanid"],
+		"zeroTraceID": ["0000000000000000:0000000000000000"]}}`
+	transport := &mockTransport{statusCode: 200, body: response}
+	w := newTestWorker(newMockHTTPClient(transport))
+
+	sr, err := w.prepare(testBatches, testBatchesCount)
+	require.NoError(t, err)
+
+	ingestResponse, sendErr := w.send(context.Background(), sr, "")
+	require.Nil(t, sendErr)
+	assert.Equal(t, response, string(ingestResponse.Body))
+
+	transport.reset(400)
+	ingestResponse, sendErr = w.send(context.Background(), sr, "")
+	require.NotNil(t, sendErr)
+	assert.Equal(t, 400, sendErr.StatusCode)
+	assert.Equal(t, response, string(ingestResponse.Body))
+
+	transport.reset(429)
+	ingestResponse, sendErr = w.send(context.Background(), sr, "")
+	require.NotNil(t, sendErr)
+	assert.Equal(t, 429, sendErr.StatusCode)
+	assert.Equal(t, response, string(ingestResponse.Body))
+
+	transport.reset(500)
+	ingestResponse, sendErr = w.send(context.Background(), sr, "")
+	require.NotNil(t, sendErr)
+	assert.Equal(t, 500, sendErr.StatusCode)
+	assert.Equal(t, response, string(ingestResponse.Body))
 }

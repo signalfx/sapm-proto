@@ -135,17 +135,26 @@ func (sa *Client) Export(ctx context.Context, batches []*jaegerpb.Batch) error {
 // worker's token if empty.
 // It returns an error in case a request cannot be processed. It's up to the caller to retry.
 func (sa *Client) ExportWithAccessToken(ctx context.Context, batches []*jaegerpb.Batch, accessToken string) error {
+	_, err := sa.ExportWithAccessTokenAndGetResponse(ctx, batches, accessToken)
+	return err
+}
+
+// ExportWithAccessTokenAndGetResponse does everything ExportWithAccessToken does and in addition will
+// return a ResponseBody indicating the response returned from trace ingest. This can be used by consumers
+// to get insights into partial drops of spans/traces from within a batch.
+func (sa *Client) ExportWithAccessTokenAndGetResponse(ctx context.Context, batches []*jaegerpb.Batch, accessToken string) (*IngestResponse, error) {
 	w := <-sa.workers
 
-	sendErr := w.export(ctx, batches, accessToken)
+	ingestResponse, sendErr := w.export(ctx, batches, accessToken)
 	sa.workers <- w
 	if sendErr != nil {
 		if sendErr.RetryDelaySeconds > 0 {
 			go sa.pauseForDuration(time.Duration(sendErr.RetryDelaySeconds) * time.Second)
 		}
-		return sendErr
+		return ingestResponse, sendErr
 	}
-	return nil
+	return ingestResponse, nil
+
 }
 
 // Stop waits for all inflight requests to finish and then drains the worker pool so no more work can be done.
