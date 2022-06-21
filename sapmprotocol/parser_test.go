@@ -17,7 +17,6 @@ package sapmprotocol
 import (
 	"bytes"
 	"compress/gzip"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path"
@@ -176,7 +175,7 @@ func BenchmarkDecode(b *testing.B) {
 		}
 		batch := sapm.Batches[0]
 		if len(batch.Spans) != smallN {
-			b.Fatal(fmt.Sprintf("wrong size %d", len(batch.Spans)))
+			b.Fatalf("wrong size %d", len(batch.Spans))
 		}
 	}
 }

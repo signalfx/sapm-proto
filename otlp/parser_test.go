@@ -25,7 +25,7 @@ import (
 	splunksapm "github.com/signalfx/sapm-proto/gen"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	conventions "go.opentelemetry.io/collector/model/semconv/v1.6.1"
+	conventions "go.opentelemetry.io/collector/semconv/v1.6.1"
 	otlpcoltrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	otlpcommon "go.opentelemetry.io/proto/otlp/common/v1"
 	otlpresource "go.opentelemetry.io/proto/otlp/resource/v1"
@@ -48,7 +48,7 @@ func TestParseRequest(t *testing.T) {
 		ResourceSpans: []*otlptrace.ResourceSpans{
 			{
 				Resource: generateOtlpResource(),
-				InstrumentationLibrarySpans: []*otlptrace.InstrumentationLibrarySpans{
+				ScopeSpans: []*otlptrace.ScopeSpans{
 					{
 						Spans: []*otlptrace.Span{
 							generateOtlpSpan(),
@@ -164,7 +164,7 @@ func generateProtoSpan() *model.Span {
 				Timestamp: testSpanEventTime,
 				Fields: []model.KeyValue{
 					{
-						Key:   "message",
+						Key:   "event",
 						VType: model.ValueType_STRING,
 						VStr:  "event-with-attr",
 					},

@@ -32,7 +32,7 @@ all: check
 	$(MAKE) generate-otlp
 	$(MAKE) test
 
-OTEL_DOCKER_PROTOBUF ?= otel/build-protobuf:0.10.0
+OTEL_DOCKER_PROTOBUF ?= otel/build-protobuf:0.12.0
 
 SAPM_PROTO_INCLUDES := -I/usr/include/github.com/gogo/protobuf
 SAPM_PROTOC := docker run --rm -u ${shell id -u} -v${PWD}:${PWD} -w${PWD} ${OTEL_DOCKER_PROTOBUF} --proto_path=${PWD}
