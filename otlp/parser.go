@@ -19,7 +19,7 @@ import (
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/translator/jaeger"
 
-	"go.opentelemetry.io/collector/model/otlpgrpc"
+	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
 
 	splunksapm "github.com/signalfx/sapm-proto/gen"
 	"github.com/signalfx/sapm-proto/sapmprotocol"
@@ -27,24 +27,22 @@ import (
 
 // otlpRequestUnmarshaler helper to implement proto.Unmarshaler, since the TracesRequest does not
 type otlpRequestUnmarshaler struct {
-	otlpgrpc.TracesRequest
+	ptraceotlp.Request
 }
 
 func (oru *otlpRequestUnmarshaler) Unmarshal(buf []byte) error {
-	var err error
-	oru.TracesRequest, err = otlpgrpc.UnmarshalTracesRequest(buf)
-	return err
+	return oru.Request.UnmarshalProto(buf)
 }
 
 // ParseRequest parses from the request (unzip if needed) from OTLP protobuf,
 // and converts it to SAPM.
 func ParseRequest(req *http.Request) (*splunksapm.PostSpansRequest, error) {
-	otlpUnmarshaler := otlpRequestUnmarshaler{}
+	otlpUnmarshaler := otlpRequestUnmarshaler{Request: ptraceotlp.NewRequest()}
 	if err := sapmprotocol.ParseSapmRequest(req, &otlpUnmarshaler); err != nil {
 		return nil, err
 	}
 
-	batches, err := jaeger.ProtoFromTraces(otlpUnmarshaler.TracesRequest.Traces())
+	batches, err := jaeger.ProtoFromTraces(otlpUnmarshaler.Traces())
 	if err != nil {
 		return nil, err
 	}
