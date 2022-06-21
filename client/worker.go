@@ -93,7 +93,7 @@ func (w *worker) export(ctx context.Context, batches []*jaegerpb.Batch, accessTo
 	responseBody, serr := w.send(ctx, sr, accessToken)
 	if serr == nil {
 		recordSuccess(ctx, sr)
-		return nil, nil
+		return responseBody, nil
 	}
 	span.RecordError(err)
 	span.SetStatus(codes.Error, "")
