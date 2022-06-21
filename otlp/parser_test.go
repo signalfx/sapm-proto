@@ -25,12 +25,13 @@ import (
 	splunksapm "github.com/signalfx/sapm-proto/gen"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	conventions "go.opentelemetry.io/collector/semconv/v1.6.1"
 	otlpcoltrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	otlpcommon "go.opentelemetry.io/proto/otlp/common/v1"
 	otlpresource "go.opentelemetry.io/proto/otlp/resource/v1"
 	otlptrace "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
+
+	conventions "go.opentelemetry.io/collector/semconv/v1.6.1"
 )
 
 // Use timespamp with microsecond granularity to work well with jaeger thrift translation

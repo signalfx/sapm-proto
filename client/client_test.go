@@ -203,7 +203,9 @@ func TestRetries(t *testing.T) {
 	err = c.Export(context.Background(), batches)
 	require.NotNil(t, err)
 	assert.Equal(t, err.Error(), "error exporting spans. server responded with status 500")
-	serr := err.(*ErrSend)
+
+	serr := &ErrSend{}
+	require.ErrorAs(t, err, &serr)
 	assert.False(t, serr.Permanent)
 
 	requests := transport.requests()
@@ -231,8 +233,9 @@ func TestBadRequest(t *testing.T) {
 		transport.reset(code)
 		err = c.Export(context.Background(), batches)
 		require.NotNil(t, err)
-		require.IsType(t, &ErrSend{}, err)
-		serr := err.(*ErrSend)
+
+		serr := &ErrSend{}
+		require.ErrorAs(t, err, &serr)
 		assert.True(t, serr.Permanent)
 		assert.Equal(t, err.Error(), "dropping request: server responded with: "+strconv.Itoa(code))
 
