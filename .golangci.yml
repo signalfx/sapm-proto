@@ -99,6 +99,8 @@ linters:
   disable:
     - errcheck
   enable:
+    - depguard
+    - errorlint
     - exportloopref
     - gocritic
     - gofmt
@@ -108,7 +110,9 @@ linters:
     - misspell
     - revive
     - staticcheck
+    - tenv
     - unconvert
+    - unused
     - unparam
 
 issues:
