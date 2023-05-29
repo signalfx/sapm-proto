@@ -21,32 +21,71 @@ import (
 	"net/http/httptest"
 	"path"
 	"reflect"
+	"strconv"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/iotest"
 	"time"
 
 	"github.com/jaegertracing/jaeger/model"
+	"github.com/klauspost/compress/zstd"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	splunksapm "github.com/signalfx/sapm-proto/gen"
 )
 
 func TestNewV2TraceHandler(t *testing.T) {
 	var zipper *gzip.Writer
-	validSapm := &splunksapm.PostSpansRequest{}
+	validSapm := &splunksapm.PostSpansRequest{
+		Batches: []*model.Batch{
+			{
+				Spans: []*model.Span{
+					{
+						OperationName: "hello",
+					},
+				},
+				Process: &model.Process{
+					ServiceName: "test_service",
+				},
+			},
+		},
+	}
 	validProto, _ := validSapm.Marshal()
-	uncompressedValidProtobufReq := httptest.NewRequest(http.MethodPost, path.Join("http://localhost", TraceEndpointV2), bytes.NewReader(validProto))
+	uncompressedValidProtobufReq := httptest.NewRequest(
+		http.MethodPost, path.Join("http://localhost", TraceEndpointV2), bytes.NewReader(validProto),
+	)
 	uncompressedValidProtobufReq.Header.Set(ContentTypeHeaderName, ContentTypeHeaderValue)
 
 	var gzippedValidProtobufBuf bytes.Buffer
 	zipper = gzip.NewWriter(&gzippedValidProtobufBuf)
 	zipper.Write(validProto)
 	zipper.Close()
-	gzippedValidProtobufReq := httptest.NewRequest(http.MethodPost, path.Join("http://localhost", TraceEndpointV2), bytes.NewReader(gzippedValidProtobufBuf.Bytes()))
+	gzippedValidProtobufReq := httptest.NewRequest(
+		http.MethodPost, path.Join("http://localhost", TraceEndpointV2),
+		bytes.NewReader(gzippedValidProtobufBuf.Bytes()),
+	)
 	gzippedValidProtobufReq.Header.Set(ContentTypeHeaderName, ContentTypeHeaderValue)
 	gzippedValidProtobufReq.Header.Set(ContentEncodingHeaderName, GZipEncodingHeaderValue)
 	gzippedValidProtobufReq.Header.Set(AcceptEncodingHeaderName, GZipEncodingHeaderValue)
 
-	badContentTypeReq := httptest.NewRequest(http.MethodPost, path.Join("http://localhost", TraceEndpointV2), bytes.NewReader([]byte{}))
+	var zstdValidProtobufBuf bytes.Buffer
+	zstder, err := zstd.NewWriter(&zstdValidProtobufBuf)
+	require.NoError(t, err)
+	zstder.Write(validProto)
+	zstder.Close()
+	zstdValidProtobufReq := httptest.NewRequest(
+		http.MethodPost, path.Join("http://localhost", TraceEndpointV2),
+		bytes.NewReader(zstdValidProtobufBuf.Bytes()),
+	)
+	zstdValidProtobufReq.Header.Set(ContentTypeHeaderName, ContentTypeHeaderValue)
+	zstdValidProtobufReq.Header.Set(ContentEncodingHeaderName, ZStdEncodingHeaderValue)
+	zstdValidProtobufReq.Header.Set(AcceptEncodingHeaderName, ZStdEncodingHeaderValue)
+
+	badContentTypeReq := httptest.NewRequest(
+		http.MethodPost, path.Join("http://localhost", TraceEndpointV2), bytes.NewReader([]byte{}),
+	)
 	badContentTypeReq.Header.Set(ContentTypeHeaderName, "application/json")
 
 	errReader := iotest.TimeoutReader(bytes.NewReader([]byte{}))
@@ -55,23 +94,46 @@ func TestNewV2TraceHandler(t *testing.T) {
 	badBodyReq := httptest.NewRequest(http.MethodPost, path.Join("http://localhost", TraceEndpointV2), errReader)
 	badBodyReq.Header.Set(ContentTypeHeaderName, ContentTypeHeaderValue)
 
-	badGzipReq := httptest.NewRequest(http.MethodPost, path.Join("http://localhost", TraceEndpointV2), bytes.NewBuffer([]byte("hello world")))
+	badGzipReq := httptest.NewRequest(
+		http.MethodPost, path.Join("http://localhost", TraceEndpointV2), bytes.NewBuffer([]byte("hello world")),
+	)
 	badGzipReq.Header.Set(ContentTypeHeaderName, ContentTypeHeaderValue)
 	badGzipReq.Header.Set(ContentEncodingHeaderName, GZipEncodingHeaderValue)
+
+	badZstdReq := httptest.NewRequest(
+		http.MethodPost, path.Join("http://localhost", TraceEndpointV2), bytes.NewBuffer([]byte("hello world")),
+	)
+	badZstdReq.Header.Set(ContentTypeHeaderName, ContentTypeHeaderValue)
+	badZstdReq.Header.Set(ContentEncodingHeaderName, ZStdEncodingHeaderValue)
 
 	var emptyGZipBuf bytes.Buffer
 	zipper = gzip.NewWriter(&emptyGZipBuf)
 	zipper.Write([]byte{})
 	zipper.Close()
-	emptyGZipReq := httptest.NewRequest(http.MethodPost, path.Join("http://localhost", TraceEndpointV2), bytes.NewReader(emptyGZipBuf.Bytes()))
+	emptyGZipReq := httptest.NewRequest(
+		http.MethodPost, path.Join("http://localhost", TraceEndpointV2), bytes.NewReader(emptyGZipBuf.Bytes()),
+	)
 	emptyGZipReq.Header.Set(ContentTypeHeaderName, ContentTypeHeaderValue)
 	emptyGZipReq.Header.Set(ContentEncodingHeaderName, GZipEncodingHeaderValue)
+
+	var emptyZstdBuf bytes.Buffer
+	zstder, err = zstd.NewWriter(&emptyZstdBuf)
+	assert.NoError(t, err)
+	zstder.Write([]byte{})
+	zstder.Close()
+	emptyZstdReq := httptest.NewRequest(
+		http.MethodPost, path.Join("http://localhost", TraceEndpointV2), bytes.NewReader(emptyZstdBuf.Bytes()),
+	)
+	emptyZstdReq.Header.Set(ContentTypeHeaderName, ContentTypeHeaderValue)
+	emptyZstdReq.Header.Set(ContentEncodingHeaderName, ZStdEncodingHeaderValue)
 
 	var invalidProtubfBuf bytes.Buffer
 	zipper = gzip.NewWriter(&invalidProtubfBuf)
 	zipper.Write([]byte("invalid protbuf body"))
 	zipper.Close()
-	invalidProtobufReq := httptest.NewRequest(http.MethodPost, path.Join("http://localhost", TraceEndpointV2), bytes.NewReader(invalidProtubfBuf.Bytes()))
+	invalidProtobufReq := httptest.NewRequest(
+		http.MethodPost, path.Join("http://localhost", TraceEndpointV2), bytes.NewReader(invalidProtubfBuf.Bytes()),
+	)
 	invalidProtobufReq.Header.Set(ContentTypeHeaderName, ContentTypeHeaderValue)
 	invalidProtobufReq.Header.Set(ContentEncodingHeaderName, GZipEncodingHeaderValue)
 
@@ -109,6 +171,30 @@ func TestNewV2TraceHandler(t *testing.T) {
 			},
 		},
 		{
+			name: "empty gzipped protobuf returns and valid sapm",
+			req:  emptyGZipReq,
+			want: want{
+				sapm:    &splunksapm.PostSpansRequest{},
+				wantErr: false,
+			},
+		},
+		{
+			name: "valid zstd protobuf returns and valid sapm",
+			req:  zstdValidProtobufReq,
+			want: want{
+				sapm:    validSapm,
+				wantErr: false,
+			},
+		},
+		{
+			name: "empty zstd protobuf returns and valid sapm",
+			req:  emptyZstdReq,
+			want: want{
+				sapm:    &splunksapm.PostSpansRequest{},
+				wantErr: false,
+			},
+		},
+		{
 			name: "invalid content type returns error and nil sapm",
 			req:  badContentTypeReq,
 			want: want{
@@ -119,6 +205,14 @@ func TestNewV2TraceHandler(t *testing.T) {
 		{
 			name: "invalid gzip data returns error and nil sapm",
 			req:  badGzipReq,
+			want: want{
+				sapm:    nil,
+				wantErr: true,
+			},
+		},
+		{
+			name: "invalid zstd data returns error and nil sapm",
+			req:  badZstdReq,
 			want: want{
 				sapm:    nil,
 				wantErr: true,
@@ -176,6 +270,151 @@ func BenchmarkDecode(b *testing.B) {
 		batch := sapm.Batches[0]
 		if len(batch.Spans) != smallN {
 			b.Fatalf("wrong size %d", len(batch.Spans))
+		}
+	}
+}
+
+func createSapmData(batchSize int) *splunksapm.PostSpansRequest {
+	attrs := []string{
+		"service.name", "shoppingcart", "host.name", "spool.example.com", "service.id",
+		"adb80442-8437-46b5-a637-ce4a158ba9cf",
+	}
+
+	batch := &model.Batch{
+		Process: &model.Process{ServiceName: "spring"},
+		Spans:   []*model.Span{},
+	}
+	for i := 0; i < batchSize; i++ {
+		span := &model.Span{
+			TraceID:       model.NewTraceID(uint64(i*5), uint64(i*10)),
+			SpanID:        model.NewSpanID(uint64(i)),
+			OperationName: "jonatan" + strconv.Itoa(i),
+			Duration:      time.Millisecond * time.Duration(i),
+			Tags: model.KeyValues{
+				{Key: "span.kind", VStr: "client", VType: model.StringType},
+			},
+			StartTime: time.Now().UTC().Add(time.Second * time.Duration(i)),
+		}
+		for j := 0; j < 2; j++ {
+			span.Tags = append(
+				span.Tags,
+				model.KeyValue{
+					Key:   attrs[(i+j)%len(attrs)],
+					VStr:  attrs[(i+j+1)%len(attrs)],
+					VType: model.StringType,
+				},
+			)
+		}
+
+		batch.Spans = append(batch.Spans, span)
+	}
+	return &splunksapm.PostSpansRequest{Batches: []*model.Batch{batch}}
+}
+
+func zstdBytes(uncompressedBytes []byte) []byte {
+	buf := bytes.NewBuffer(nil)
+	w, err := zstd.NewWriter(buf)
+	if err != nil {
+		panic(err)
+	}
+	w.Write(uncompressedBytes)
+	w.Close()
+	zstdBytes := buf.Bytes()
+	return zstdBytes
+}
+
+func gzipBytes(uncompressedBytes []byte) []byte {
+	buf := bytes.NewBuffer(nil)
+	w := gzip.NewWriter(buf)
+	w.Write(uncompressedBytes)
+	w.Close()
+	gzipBytes := buf.Bytes()
+	return gzipBytes
+}
+
+type decodeTest struct {
+	name            string
+	contentEncoding string
+	requestBytes    []byte
+}
+
+func benchmarkDecodeTest(b *testing.B, test decodeTest, batchSize int) {
+	// How many concurrent goroutines to use to generate requests and decode them.
+	// Using numbers larger than 1 better mimics what a typical http server does when
+	// it receives concurrent incoming requests.
+	const requestConcurrency = 100
+
+	var wg sync.WaitGroup
+	var requestCount int64
+	for i := 0; i < requestConcurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for atomic.AddInt64(&requestCount, 1) < int64(b.N) {
+				// Create a request with precomputed payload.
+				valid := httptest.NewRequest(
+					http.MethodPost, path.Join("http://localhost", TraceEndpointV2),
+					bytes.NewReader(test.requestBytes),
+				)
+				valid.Header.Set(ContentTypeHeaderName, ContentTypeHeaderValue)
+				if test.contentEncoding != "" {
+					valid.Header.Set(ContentEncodingHeaderName, test.contentEncoding)
+				}
+
+				// And parse the request. This is the part we want to measure,
+				// but the preceding request creation is so fast it does not
+				// impact the benchmark in any significant way.
+				sapm, err := ParseTraceV2Request(valid)
+				if err != nil {
+					require.FailNow(b, err.Error())
+				}
+				batch := sapm.Batches[0]
+				require.EqualValues(b, len(batch.Spans), batchSize)
+			}
+		}()
+		wg.Wait()
+	}
+}
+
+func BenchmarkDecodeMatrix(b *testing.B) {
+
+	batchSizes := []int{1, 10, 100, 1000}
+	for _, batchSize := range batchSizes {
+
+		// Encode the batch to binary ProtoBuf.
+		sapmData := createSapmData(batchSize)
+
+		uncompressedBytes, err := sapmData.Marshal()
+		if err != nil {
+			b.Fatal(err.Error())
+		}
+
+		gzipBytes := gzipBytes(uncompressedBytes)
+		zstdBytes := zstdBytes(uncompressedBytes)
+
+		tests := []decodeTest{
+			{
+				name:         "none",
+				requestBytes: uncompressedBytes,
+			},
+			{
+				name:            "gzip",
+				requestBytes:    gzipBytes,
+				contentEncoding: GZipEncodingHeaderValue,
+			},
+			{
+				name:            "zstd",
+				requestBytes:    zstdBytes,
+				contentEncoding: ZStdEncodingHeaderValue,
+			},
+		}
+
+		for _, test := range tests {
+			b.Run(
+				test.name+"/batch="+strconv.Itoa(batchSize), func(b *testing.B) {
+					benchmarkDecodeTest(b, test, batchSize)
+				},
+			)
 		}
 	}
 }

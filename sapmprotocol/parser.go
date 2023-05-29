@@ -23,34 +23,82 @@ import (
 	"sync"
 
 	"github.com/gogo/protobuf/proto"
+	"github.com/klauspost/compress/zstd"
 
 	splunksapm "github.com/signalfx/sapm-proto/gen"
 )
 
 type poolObj struct {
-	gr   *gzip.Reader
-	jeff *bytes.Buffer
-	tmp  []byte
+	// tempBuf holds bytes of the message in ProtoBuf format.
+	// We keep the buffer in the pool object to reduce allocations.
+	tempBuf *bytes.Buffer
+}
+
+type gzipPoolObj struct {
+	poolObj
+	gzipReader *gzip.Reader
+}
+
+type zstdPoolObj struct {
+	poolObj
+	zstdReader *zstd.Decoder
 }
 
 var (
 	// ErrBadContentType indicates an incompatible content type was received
 	ErrBadContentType = errors.New("bad content type")
 
-	pool = &sync.Pool{
+	// Pool of buffers for copying non-compressed payloads.
+	bufPool = &sync.Pool{
 		New: func() interface{} {
-			// create a new gzip reader with a bytes reader and array of bytes containing only the gzip header
-			gr, _ := gzip.NewReader(bytes.NewReader([]byte{31, 139, 8, 0, 0, 0, 0, 0, 0, 255, 0, 0, 0, 255, 255, 1, 0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0}))
-			jeff := &bytes.Buffer{}
-			tmp := make([]byte, 32*1024)
-			return &poolObj{
-				gr:   gr,
-				jeff: jeff,
-				tmp:  tmp,
+			obj := newPoolObj()
+			return &obj
+		},
+	}
+
+	// Pool of gzip readers.
+	gzipPool = &sync.Pool{
+		New: func() interface{} {
+			// create a new gzip gzipReader with a bytes gzipReader and array of bytes containing only the gzip header
+			reader, _ := gzip.NewReader(
+				bytes.NewReader(
+					[]byte{
+						31, 139, 8, 0, 0, 0, 0, 0, 0, 255, 0, 0, 0, 255, 255, 1, 0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0,
+					},
+				),
+			)
+			return &gzipPoolObj{
+				gzipReader: reader,
+				poolObj:    newPoolObj(),
+			}
+		},
+	}
+
+	// Pool of zstd readers.
+	zstdPool = &sync.Pool{
+		New: func() interface{} {
+			reader, _ := zstd.NewReader(
+				bytes.NewReader(
+					[]byte{},
+				),
+				// Enable sync mode to avoid concurrency overheads. With http requests
+				// we don't need any concurrent decompression for individual request
+				// payload, it is pointless.
+				zstd.WithDecoderConcurrency(1),
+			)
+			return &zstdPoolObj{
+				zstdReader: reader,
+				poolObj:    newPoolObj(),
 			}
 		},
 	}
 )
+
+func newPoolObj() poolObj {
+	return poolObj{
+		tempBuf: &bytes.Buffer{},
+	}
+}
 
 // ParseTraceV2Request processes an http request request into SAPM
 func ParseTraceV2Request(req *http.Request) (*splunksapm.PostSpansRequest, error) {
@@ -70,26 +118,47 @@ func ParseSapmRequest(req *http.Request, into proto.Unmarshaler) error {
 
 	var reader io.Reader
 
-	obj := pool.Get().(*poolObj)
-	defer pool.Put(obj)
-	obj.jeff.Reset()
+	// Temporary buffer to store the message in so that we can unmarshal it.
+	var tempBuf *bytes.Buffer
 
-	// content encoding SHOULD be gzip
-	if req.Header.Get(ContentEncodingHeaderName) == GZipEncodingHeaderValue {
+	// Obtain the correct object from one of the pools based on the content encoding.
+	switch req.Header.Get(ContentEncodingHeaderName) {
+	case GZipEncodingHeaderValue:
+		obj := gzipPool.Get().(*gzipPoolObj)
+		defer gzipPool.Put(obj)
+		tempBuf = obj.tempBuf
 		// get the gzip reader
 		// reset the reader with the request body
-		if err := obj.gr.Reset(req.Body); err != nil {
+		if err := obj.gzipReader.Reset(req.Body); err != nil {
 			return err
 		}
-		reader = obj.gr
-	} else {
+		reader = obj.gzipReader
+
+	case ZStdEncodingHeaderValue:
+		obj := zstdPool.Get().(*zstdPoolObj)
+		defer zstdPool.Put(obj)
+		tempBuf = obj.tempBuf
+		// get the zstd reader
+		// reset the reader with the request body
+		if err := obj.zstdReader.Reset(req.Body); err != nil {
+			return err
+		}
+		reader = obj.zstdReader
+
+	case "":
+		// Not compressed. Just need a temporary buffer to read the entire Body into.
+		obj := bufPool.Get().(*poolObj)
+		defer bufPool.Put(obj)
+		tempBuf = obj.tempBuf
 		reader = req.Body
 	}
 
-	if _, err := io.CopyBuffer(obj.jeff, reader, obj.tmp); err != nil {
+	// Read ProtoBuf message bytes from the Reader into a temporary buffer.
+	tempBuf.Reset()
+	if _, err := io.Copy(tempBuf, reader); err != nil {
 		return err
 	}
 
-	// unmarshal request body
-	return into.Unmarshal(obj.jeff.Bytes())
+	// Unmarshal the message from the buffer.
+	return into.Unmarshal(tempBuf.Bytes())
 }
