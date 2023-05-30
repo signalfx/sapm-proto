@@ -34,8 +34,10 @@ var defaultEndpointOption = WithEndpoint("http://local")
 
 func assertRequestEqualBatches(t *testing.T, r *http.Request, b []*jaegerpb.Batch) {
 	psr, err := sapmprotocol.ParseTraceV2Request(r)
-	assert.NoError(t, err)
-	assert.EqualValues(t, b, psr.Batches)
+	require.NoError(t, err)
+	if psr != nil {
+		require.EqualValues(t, b, psr.Batches)
+	}
 }
 
 func TestDefaults(t *testing.T) {
@@ -48,37 +50,74 @@ func TestDefaults(t *testing.T) {
 	assert.Equal(t, defaultNumWorkers, uint(len(c.workers)))
 }
 
+var compressionTests = []struct {
+	name               string
+	disableCompression bool
+	compressionMethod  CompressionMethod
+}{
+	{
+		name:               "none",
+		disableCompression: true,
+	},
+	{
+		name:              "gzip",
+		compressionMethod: CompressionMethodGzip,
+	},
+	{
+		name:              "zstd",
+		compressionMethod: CompressionMethodZstd,
+	},
+}
+
 func TestClient(t *testing.T) {
-	transport := &mockTransport{}
-	c, err := New(defaultEndpointOption, WithHTTPClient(newMockHTTPClient(transport)), WithAccessToken("ClientToken"))
-	require.NoError(t, err)
 
-	requestsBatches := [][]*jaegerpb.Batch{}
+	for _, test := range compressionTests {
+		t.Run(
+			test.name, func(t *testing.T) {
+				transport := &mockTransport{}
+				opts := []Option{
+					defaultEndpointOption,
+					WithHTTPClient(newMockHTTPClient(transport)),
+					WithAccessToken("ClientToken"),
+				}
+				if test.disableCompression {
+					opts = append(opts, WithDisabledCompression())
+				} else {
+					opts = append(opts, WithCompressionMethod(test.compressionMethod))
+				}
+				client, err := New(opts...)
+				require.NoError(t, err)
 
-	for i := 0; i < 10; i++ {
-		batches := []*jaegerpb.Batch{
-			{
-				Process: &jaegerpb.Process{ServiceName: "test_service_" + strconv.Itoa(i)},
-				Spans:   []*jaegerpb.Span{{}},
+				requestsBatches := [][]*jaegerpb.Batch{}
+
+				for i := 0; i < 10; i++ {
+					batches := []*jaegerpb.Batch{
+						{
+							Process: &jaegerpb.Process{ServiceName: "test_service_" + strconv.Itoa(i)},
+							Spans:   []*jaegerpb.Span{{}},
+						},
+					}
+					requestsBatches = append(requestsBatches, batches)
+				}
+
+				for _, batches := range requestsBatches {
+					err := client.Export(context.Background(), batches)
+					require.Nil(t, err)
+				}
+
+				requests := transport.requests()
+				assert.Len(t, requests, len(requestsBatches))
+
+				for i, want := range requestsBatches {
+					assertRequestEqualBatches(t, requests[i].r, want)
+				}
+
+				for _, request := range requests {
+					assert.Equal(t, request.r.Header.Get(headerAccessToken), "ClientToken")
+					assert.EqualValues(t, request.r.Header.Get(headerContentEncoding), test.compressionMethod)
+				}
 			},
-		}
-		requestsBatches = append(requestsBatches, batches)
-	}
-
-	for _, batches := range requestsBatches {
-		err := c.Export(context.Background(), batches)
-		require.Nil(t, err)
-	}
-
-	requests := transport.requests()
-	assert.Len(t, requests, len(requestsBatches))
-
-	for i, want := range requestsBatches {
-		assertRequestEqualBatches(t, requests[i].r, want)
-	}
-
-	for _, request := range requests {
-		assert.Equal(t, request.r.Header.Get(headerAccessToken), "ClientToken")
+		)
 	}
 }
 
@@ -411,4 +450,13 @@ func TestPauses(t *testing.T) {
 	for _, e := range elapsed {
 		assert.True(t, e >= time.Second*time.Duration(retryDelaySeconds))
 	}
+}
+
+func TestInvalidCompressionMethod(t *testing.T) {
+	_, err := New(
+		defaultEndpointOption,
+		WithHTTPClient(newMockHTTPClient(&mockTransport{})),
+		WithCompressionMethod("wrong"),
+	)
+	require.Error(t, err)
 }

@@ -25,6 +25,7 @@ import (
 	"strconv"
 
 	jaegerpb "github.com/jaegertracing/jaeger/model"
+	"github.com/klauspost/compress/zstd"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -39,6 +40,11 @@ type IngestResponse struct {
 	Err  error
 }
 
+type resetWriteCloser interface {
+	io.WriteCloser
+	Reset(w io.Writer)
+}
+
 // worker is not safe to be called from multiple goroutines. Each caller must use locks to avoid races
 // and data corruption. In case a caller needs to export multiple requests at the same time, it should
 // use one worker per request.
@@ -47,11 +53,19 @@ type worker struct {
 	client             *http.Client
 	accessToken        string
 	endpoint           string
-	gzipWriter         *gzip.Writer
+	compressWriter     resetWriteCloser
 	disableCompression bool
+	compressionMethod  CompressionMethod
 }
 
-func newWorker(client *http.Client, endpoint string, accessToken string, disableCompression bool, tracerProvider trace.TracerProvider) *worker {
+func newWorker(
+	client *http.Client,
+	endpoint string,
+	accessToken string,
+	disableCompression bool,
+	compressionMethod CompressionMethod,
+	tracerProvider trace.TracerProvider,
+) (*worker, error) {
 	if tracerProvider == nil {
 		tracerProvider = trace.NewNoopTracerProvider()
 	}
@@ -61,9 +75,29 @@ func newWorker(client *http.Client, endpoint string, accessToken string, disable
 		accessToken:        accessToken,
 		endpoint:           endpoint,
 		disableCompression: disableCompression,
-		gzipWriter:         gzip.NewWriter(nil),
+		compressionMethod:  compressionMethod,
 	}
-	return w
+
+	if !disableCompression {
+		switch w.compressionMethod {
+		case CompressionMethodGzip:
+			w.compressWriter = gzip.NewWriter(nil)
+		case CompressionMethodZstd:
+			var err error
+			w.compressWriter, err = zstd.NewWriter(
+				nil,
+				// Enable sync mode to avoid concurrency overheads.
+				zstd.WithEncoderConcurrency(1),
+			)
+			if err != nil {
+				return nil, err
+			}
+		default:
+			return nil, fmt.Errorf("unknown compression method %v", w.compressionMethod)
+		}
+	}
+
+	return w, nil
 }
 
 func (w *worker) export(ctx context.Context, batches []*jaegerpb.Batch, accessToken string) (*IngestResponse, *ErrSend) {
@@ -113,7 +147,7 @@ func (w *worker) send(ctx context.Context, r *sendRequest, accessToken string) (
 	req.Header.Add(headerContentType, headerValueXProtobuf)
 
 	if !w.disableCompression {
-		req.Header.Add(headerContentEncoding, headerValueGZIP)
+		req.Header.Add(headerContentEncoding, string(w.compressionMethod))
 	}
 
 	if accessToken == "" {
@@ -194,14 +228,14 @@ func (w *worker) prepare(batches []*jaegerpb.Batch, spansCount int) (*sendReques
 	}
 
 	buf := bytes.NewBuffer([]byte{})
-	w.gzipWriter.Reset(buf)
+	w.compressWriter.Reset(buf)
 
-	if _, err = w.gzipWriter.Write(encoded); err != nil {
-		return nil, fmt.Errorf("failed to gzip request: %w", err)
+	if _, err = w.compressWriter.Write(encoded); err != nil {
+		return nil, fmt.Errorf("failed to compress request: %w", err)
 	}
 
-	if err = w.gzipWriter.Close(); err != nil {
-		return nil, fmt.Errorf("failed to gzip request: %w", err)
+	if err = w.compressWriter.Close(); err != nil {
+		return nil, fmt.Errorf("failed to compress request: %w", err)
 	}
 	sr := &sendRequest{
 		message: buf.Bytes(),

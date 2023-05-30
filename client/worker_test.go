@@ -19,8 +19,10 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"testing"
 
 	"github.com/gogo/protobuf/proto"
@@ -30,6 +32,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	gen "github.com/signalfx/sapm-proto/gen"
+	"github.com/signalfx/sapm-proto/internal/testhelpers"
 )
 
 var (
@@ -70,11 +73,19 @@ var (
 )
 
 func newTestWorker(c *http.Client) *worker {
-	return newWorker(c, "http://local", "", false, trace.NewNoopTracerProvider())
+	w, err := newWorker(c, "http://local", "", false, CompressionMethodGzip, trace.NewNoopTracerProvider())
+	if err != nil {
+		panic(err)
+	}
+	return w
 }
 
 func newTestWorkerWithCompression(c *http.Client, disableCompression bool) *worker {
-	return newWorker(c, "http://local", "", disableCompression, trace.NewNoopTracerProvider())
+	w, err := newWorker(c, "http://local", "", disableCompression, CompressionMethodGzip, trace.NewNoopTracerProvider())
+	if err != nil {
+		panic(err)
+	}
+	return w
 }
 
 func TestPrepare(t *testing.T) {
@@ -137,7 +148,7 @@ func TestWorkerSend(t *testing.T) {
 
 	r := received[0].r
 	assert.Equal(t, r.Method, "POST")
-	assert.Equal(t, r.Header.Get(headerContentEncoding), headerValueGZIP)
+	assert.EqualValues(t, r.Header.Get(headerContentEncoding), CompressionMethodGzip)
 	assert.Equal(t, r.Header.Get(headerContentType), headerValueXProtobuf)
 }
 
@@ -156,7 +167,7 @@ func TestWorkerSendWithAccessToken(t *testing.T) {
 
 	r := received[0].r
 	assert.Equal(t, r.Method, "POST")
-	assert.Equal(t, r.Header.Get(headerContentEncoding), headerValueGZIP)
+	assert.EqualValues(t, r.Header.Get(headerContentEncoding), CompressionMethodGzip)
 	assert.Equal(t, r.Header.Get(headerContentType), headerValueXProtobuf)
 	assert.Equal(t, r.Header.Get(headerAccessToken), "Preferential")
 }
@@ -177,7 +188,7 @@ func TestWorkerSendDefaultsToWorkerToken(t *testing.T) {
 
 	r := received[0].r
 	assert.Equal(t, r.Method, "POST")
-	assert.Equal(t, r.Header.Get(headerContentEncoding), headerValueGZIP)
+	assert.EqualValues(t, r.Header.Get(headerContentEncoding), CompressionMethodGzip)
 	assert.Equal(t, r.Header.Get(headerContentType), headerValueXProtobuf)
 	assert.Equal(t, r.Header.Get(headerAccessToken), "WorkerToken")
 }
@@ -277,4 +288,84 @@ func TestWorkerIngestResponse(t *testing.T) {
 	require.NotNil(t, sendErr)
 	assert.Equal(t, 500, sendErr.StatusCode)
 	assert.Equal(t, response, string(ingestResponse.Body))
+}
+
+func TestCompressionSize(t *testing.T) {
+	fmt.Println("Message byte size by batch size and compression method.")
+	fmt.Printf("Compression ")
+	for _, test := range compressionTests {
+		fmt.Printf("%10v", test.name)
+	}
+	fmt.Printf("\n")
+
+	batchSizes := []int{1, 10, 100, 1000, 10000}
+	for _, batchSize := range batchSizes {
+
+		fmt.Printf("Batch=%-5v ", batchSize)
+
+		var byteSizes []int
+		for _, test := range compressionTests {
+			sapmData := testhelpers.CreateSapmData(batchSize)
+
+			transport := &mockTransport{}
+			client := newMockHTTPClient(transport)
+			w, err := newWorker(
+				client,
+				"http://local",
+				"",
+				test.disableCompression,
+				test.compressionMethod,
+				trace.NewNoopTracerProvider(),
+			)
+			require.NoError(t, err)
+			sr, err := w.prepare(sapmData.Batches, len(sapmData.Batches))
+			require.NoError(t, err)
+
+			byteSizes = append(byteSizes, len(sr.message))
+		}
+		for _, s := range byteSizes {
+			fmt.Printf("%10v", s)
+		}
+		fmt.Printf("\n")
+	}
+}
+
+func BenchmarkCompression(b *testing.B) {
+
+	batchSizes := []int{1, 100, 1000}
+	for _, batchSize := range batchSizes {
+		for _, test := range compressionTests {
+			sapmData := testhelpers.CreateSapmData(batchSize)
+
+			b.Run(
+				test.name+"/batch="+strconv.Itoa(batchSize), func(b *testing.B) {
+					transport := &mockTransport{}
+					client := newMockHTTPClient(transport)
+					w, err := newWorker(
+						client,
+						"http://local",
+						"",
+						test.disableCompression,
+						test.compressionMethod,
+						trace.NewNoopTracerProvider(),
+					)
+					require.NoError(b, err)
+
+					for i := 0; i < b.N; i++ {
+						sr, err := w.prepare(sapmData.Batches, len(sapmData.Batches))
+						require.NoError(b, err)
+
+						_, err = w.send(context.Background(), sr, "")
+						require.Nil(b, err)
+
+						received := transport.requests()
+						require.Len(b, received, i+1)
+
+						r := received[i].r
+						assert.EqualValues(b, r.Header.Get(headerContentEncoding), test.compressionMethod)
+					}
+				},
+			)
+		}
+	}
 }

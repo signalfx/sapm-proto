@@ -15,6 +15,7 @@
 package client
 
 import (
+	"fmt"
 	"net/http"
 
 	"go.opentelemetry.io/otel/trace"
@@ -64,10 +65,26 @@ func WithAccessToken(t string) Option {
 	}
 }
 
-// WithDisabledCompression configures the client to not apply GZip compression on the outgoing requests.
+// WithDisabledCompression configures the client to not apply compression on the outgoing requests.
 func WithDisabledCompression() Option {
 	return func(a *Client) error {
 		a.disableCompression = true
+		return nil
+	}
+}
+
+// WithCompressionMethod chooses the compression method for the outgoing requests.
+// The default compression method is CompressionMethodGzip.
+// This option is ignored if WithDisabledCompression() is used.
+func WithCompressionMethod(compressionMethod CompressionMethod) Option {
+	return func(a *Client) error {
+		switch compressionMethod {
+		case CompressionMethodGzip, CompressionMethodZstd:
+			a.compressionMethod = compressionMethod
+		default:
+			return fmt.Errorf("invalid compression method %q", string(compressionMethod))
+		}
+
 		return nil
 	}
 }
