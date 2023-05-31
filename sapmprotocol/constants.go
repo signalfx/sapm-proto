@@ -28,4 +28,6 @@ const (
 	ContentEncodingHeaderName = "Content-Encoding"
 	// GZipEncodingHeaderValue is the value used for gzipped encoding http headers
 	GZipEncodingHeaderValue = "gzip"
+	// ZStdEncodingHeaderValue is the value used for zstd-compressed encoding http headers
+	ZStdEncodingHeaderValue = "zstd"
 )
