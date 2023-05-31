@@ -400,9 +400,8 @@ func TestPauses(t *testing.T) {
 	elapsed := []time.Duration{}
 	for i := 0; i < numWorkers; i++ {
 		go func() {
-			then := time.Now()
 			c.Export(context.Background(), batches)
-			elapsed = append(elapsed, time.Since(then)+wait)
+			elapsed = append(elapsed, time.Since(then))
 			wg.Done()
 		}()
 	}
