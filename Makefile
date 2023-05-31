@@ -102,3 +102,6 @@ install-tools:
 	cd $(TOOLS_MOD_DIR) && go install github.com/google/addlicense
 	cd $(TOOLS_MOD_DIR) && go install github.com/ory/go-acc
 	cd $(TOOLS_MOD_DIR) && go install github.com/pavius/impi/cmd/impi
+
+benchmark:
+	go test ./... -run nosuchtest -benchmem -bench .
