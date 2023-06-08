@@ -43,7 +43,6 @@ const (
 	headerRetryAfter                  = "Retry-After"
 	headerContentEncoding             = "Content-Encoding"
 	headerContentType                 = "Content-Type"
-	headerValueGZIP                   = "gzip"
 	headerValueXProtobuf              = "application/x-protobuf"
 )
 

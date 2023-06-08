@@ -47,16 +47,26 @@ type sendRequest struct {
 	batches int64
 }
 
+// CompressionMethod strings MUST match the Content-Encoding http header values.
+type CompressionMethod string
+
+const CompressionMethodGzip CompressionMethod = "gzip"
+const CompressionMethodZstd CompressionMethod = "zstd"
+
 // Client implements an HTTP sender for the SAPM protocol
 type Client struct {
-	tracerProvider     trace.TracerProvider
-	numWorkers         uint
-	maxIdleCons        uint
-	endpoint           string
-	accessToken        string
-	httpClient         *http.Client
+	tracerProvider trace.TracerProvider
+	numWorkers     uint
+	maxIdleCons    uint
+	endpoint       string
+	accessToken    string
+	httpClient     *http.Client
+
 	disableCompression bool
-	closeCh            chan struct{}
+	// compressionMethod to use for payload. Ignored if disableCompression==true.
+	compressionMethod CompressionMethod
+
+	closeCh chan struct{}
 
 	workers chan *worker
 }
@@ -69,8 +79,9 @@ func New(opts ...Option) (*Client, error) {
 	}
 
 	c := &Client{
-		numWorkers:  defaultNumWorkers,
-		maxIdleCons: defaultMaxIdleCons,
+		numWorkers:        defaultNumWorkers,
+		maxIdleCons:       defaultMaxIdleCons,
+		compressionMethod: CompressionMethodGzip,
 	}
 
 	for _, opt := range opts {
@@ -117,7 +128,12 @@ func New(opts ...Option) (*Client, error) {
 	c.closeCh = make(chan struct{})
 	c.workers = make(chan *worker, c.numWorkers)
 	for i := uint(0); i < c.numWorkers; i++ {
-		w := newWorker(c.httpClient, c.endpoint, c.accessToken, c.disableCompression, c.tracerProvider)
+		w, err := newWorker(
+			c.httpClient, c.endpoint, c.accessToken, c.disableCompression, c.compressionMethod, c.tracerProvider,
+		)
+		if err != nil {
+			return nil, err
+		}
 		c.workers <- w
 	}
 
