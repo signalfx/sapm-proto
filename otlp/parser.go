@@ -27,17 +27,17 @@ import (
 
 // otlpRequestUnmarshaler helper to implement proto.Unmarshaler, since the TracesRequest does not
 type otlpRequestUnmarshaler struct {
-	ptraceotlp.Request
+	ptraceotlp.ExportRequest
 }
 
 func (oru *otlpRequestUnmarshaler) Unmarshal(buf []byte) error {
-	return oru.Request.UnmarshalProto(buf)
+	return oru.ExportRequest.UnmarshalProto(buf)
 }
 
 // ParseRequest parses from the request (unzip if needed) from OTLP protobuf,
 // and converts it to SAPM.
 func ParseRequest(req *http.Request) (*splunksapm.PostSpansRequest, error) {
-	otlpUnmarshaler := otlpRequestUnmarshaler{Request: ptraceotlp.NewRequest()}
+	otlpUnmarshaler := otlpRequestUnmarshaler{ExportRequest: ptraceotlp.NewExportRequest()}
 	if err := sapmprotocol.ParseSapmRequest(req, &otlpUnmarshaler); err != nil {
 		return nil, err
 	}
