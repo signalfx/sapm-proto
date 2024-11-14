@@ -42,9 +42,6 @@ func ParseRequest(req *http.Request) (*splunksapm.PostSpansRequest, error) {
 		return nil, err
 	}
 
-	batches, err := jaeger.ProtoFromTraces(otlpUnmarshaler.Traces())
-	if err != nil {
-		return nil, err
-	}
+	batches := jaeger.ProtoFromTraces(otlpUnmarshaler.Traces())
 	return &splunksapm.PostSpansRequest{Batches: batches}, nil
 }
