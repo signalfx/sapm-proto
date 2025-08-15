@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/jaegertracing/jaeger/model"
+	"github.com/jaegertracing/jaeger-idl/model/v1"
 
 	splunksapm "github.com/signalfx/sapm-proto/gen"
 )

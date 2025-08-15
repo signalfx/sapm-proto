@@ -26,7 +26,7 @@ import (
 	"testing"
 
 	"github.com/gogo/protobuf/proto"
-	jaegerpb "github.com/jaegertracing/jaeger/model"
+	jaegerpb "github.com/jaegertracing/jaeger-idl/model/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
