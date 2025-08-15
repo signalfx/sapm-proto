@@ -63,7 +63,7 @@ test:
 
 .PHONY: addlicense
 addlicense:
-	@ADDLICENCESEOUT=`$(ADDLICENCESE) -y 2019 -c 'Splunk, Inc.' $(ALL_SRC) 2>&1`; \
+	@ADDLICENCESEOUT=`$(ADDLICENCESE) -c 'Splunk, Inc.' $(ALL_SRC) 2>&1`; \
 		if [ "$$ADDLICENCESEOUT" ]; then \
 			echo "$(ADDLICENCESE) FAILED => add License errors:\n"; \
 			echo "$$ADDLICENCESEOUT\n"; \
