@@ -44,7 +44,7 @@ generate-sapm:
 	git submodule update --init
 
 	mkdir -p $(SAPM_TARGET_GEN_DIR)
-	$(SAPM_PROTOC) $(SAPM_PROTO_INCLUDES) --gogo_out=,Mjaeger-idl/proto/api_v2/model.proto=github.com/jaegertracing/jaeger/model:$(SAPM_TARGET_GEN_DIR) proto/sapm.proto
+	$(SAPM_PROTOC) $(SAPM_PROTO_INCLUDES) --gogo_out=,Mjaeger-idl/proto/api_v2/model.proto=github.com/jaegertracing/jaeger-idl/model/v1:$(SAPM_TARGET_GEN_DIR) proto/sapm.proto
 
 	@echo Move generated code to target directory.
 	cp -R $(SAPM_TARGET_GEN_DIR)/proto/* $(SAPM_TARGET_GEN_DIR)
