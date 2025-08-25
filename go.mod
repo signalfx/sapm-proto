@@ -8,7 +8,7 @@ require (
 	github.com/jaegertracing/jaeger-idl v0.6.0
 	github.com/klauspost/compress v1.18.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/translator/jaeger v0.132.0
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.0
 	go.opentelemetry.io/collector/pdata v1.38.0
 	go.opentelemetry.io/collector/semconv v0.113.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.62.0
