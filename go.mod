@@ -10,7 +10,7 @@ require (
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/translator/jaeger v0.132.0
 	github.com/stretchr/testify v1.11.0
 	go.opentelemetry.io/collector/pdata v1.38.0
-	go.opentelemetry.io/collector/semconv v0.113.0
+	go.opentelemetry.io/collector/semconv v0.128.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.62.0
 	go.opentelemetry.io/otel v1.37.0
 	go.opentelemetry.io/otel/trace v1.37.0
