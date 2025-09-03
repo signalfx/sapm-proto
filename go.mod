@@ -1,6 +1,6 @@
 module github.com/signalfx/sapm-proto
 
-go 1.23.6
+go 1.24.6
 
 require (
 	github.com/gogo/protobuf v1.3.2
