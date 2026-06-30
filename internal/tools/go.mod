@@ -1,6 +1,6 @@
 module github.com/signalfx/sapm-proto/internal/tools
 
-go 1.24.6
+go 1.25.0
 
 require (
 	github.com/client9/misspell v0.3.4
@@ -52,6 +52,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/denis-tingaikin/go-header v0.5.0 // indirect
 	github.com/dgraph-io/ristretto v0.0.2 // indirect
+	github.com/dlclark/regexp2 v1.12.0 // indirect
 	github.com/ettle/strcase v0.2.0 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/fatih/structtag v1.2.0 // indirect
